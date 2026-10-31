@@ -1,0 +1,35 @@
+function ...
+    [k_n, ...        % Omega_int - scaled speed vector
+    k_ch, ...         % Power_int - scaled load vector
+    ge_graf] ...           % ge_graf  - load characteristic matrix
+    = Shlipce_part_load_characteristic( ...
+    ge_basik, ...      % specific fuel consumption data
+    P, ...   % power range data
+    w)             % speed range data
+    
+    omega = max(w);
+    power_basik = max(P)
+    way = erase(fileparts(which(mfilename)),'Function_folder');
+    
+    file_k_n = [way,'Data\Shlipke_coefficient\k_n_graf.txt'];
+    file_k_ch = [way, 'Data\Shlipke_coefficient\k_ch_graf.txt'];
+    
+    % ---------- Load data from files ----------
+    k_n_graf    = readmatrix(file_k_n);
+    k_ch_graf   = readmatrix(file_k_ch);
+
+    % ---------- Interpolate coefficients ----------
+    k_01 = linspace(min(k_n_graf(:,1)), max(k_n_graf(:,1)), 100);
+    k_02 = linspace(min(k_ch_graf(:,1)), max(k_ch_graf(:,1)), 100);
+    
+  
+
+    k_n = interp1(k_n_graf(:,1), k_n_graf(:,2), k_01);
+    k_ch = interp1(k_ch_graf(:,1), k_ch_graf(:,2), k_02);
+
+    % ---------- Minimum specific fuel consumption ----------
+    ge_min = min(ge_basik);
+
+    % ---------- Load characteristic ----------
+    ge_graf = ge_min * k_02' .* k_01;
+end
