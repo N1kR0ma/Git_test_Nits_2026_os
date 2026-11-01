@@ -1,6 +1,3 @@
- 
-
-
 function ...
     [Ge_real] ...           % ge_graf  - load characteristic matrix
     = Shlipce_part_load_characteristic( ...

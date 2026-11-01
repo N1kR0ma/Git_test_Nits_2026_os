@@ -16,7 +16,7 @@ clear way2func
 setupPlotDefaults();
 
 %% Input Data
-
+graphic_cr = false;
 %% Standart constrant
 Const.g = 9.80665;
 Const.rho = 1.225;
@@ -29,6 +29,8 @@ Road.f_r = 0.007;    % % %  Coefficient of rolling resistance
 Road.mu = 0.8;       % % %  Tip-road friction coefficient
 Road.k_f = 2.9e-4;      % % %  Coefficient of dependence of type rolling resistance on speed
 Road.alpha_max = 10; % % %  Maximum road angle
+Road.alpha = 0;
+Road.file_name = 'Millbrook Heavy Duty_urban.txt'; % % % Name file with 
 
 %% Vehicle parametr
 Vehicle.mass_f = 32000; % % % Full mass vehicle
@@ -39,6 +41,7 @@ Vehicle.Tire_1 = 315;
 Vehicle.Tire_2 = 80;
 Vehicle.Tire_R = 22.5;
 Vehicle.I_w =  15;      % % % Wheel moment inertia
+Vehicle.Wheel = 10;
 
 %%% Transmission
 Vehicle.i_fd = 29/17; % % % Final drive ratio
@@ -67,175 +70,106 @@ Vehicle.C_m = 0.8; % % % Frontal area coefficient (Midel)
 
 %%% Engine 
 Vehicle.I_e = 2; % % %  Engine moment inertia
-Engine_external_charascteristic_curve_data = 'D_2876_LF_04_EURO_3';
+Engine_charascteristic_curve_data = 'D_2876_LF_04_EURO_3';
 Engine.Diametr = 0.128;
 Engine.Pist_stroke = 0.166;
 Engine.Volume = 12816e-6;
 Engine.Hu = 42.5;
 Engine.Number_cil = 6;
+Engine.Coef_use = 0.92;
 
 Moment_coeff = 0.25:0.05:1;   % % % % Part load moment
 
 %% Pre-processing of variables
 Way2EngineParametr = ['Engine_parametr/', ...
-Engine_external_charascteristic_curve_data];
+Engine_charascteristic_curve_data];
 Omega_file = [Way2EngineParametr, '_w', '.txt'];
 Torque_file = [Way2EngineParametr, '_t', '.txt'];
 Fuel_file = [Way2EngineParametr, '_ge', '.txt'];
+
+Way2RoadParametr = ['Road_parametr/']
 
 % Reading_engine_data
 Engine.W_e = readArrayFromTxt(Omega_file) * Const.rpm;   % рад/с
 T_e        = readArrayFromTxt(Torque_file);               % Н·м, 1×N_w
 Ge_e       = readArrayFromTxt(Fuel_file);                  % г/(кВт·ч), 1×N_w
-Ge_e =1
 
-
-% % % Shlipke approximation if have only EECC
-if size(Ge_e,1)*size(Ge_e,2) == 1
-disp('Not enjoy data for use Willins model, use Shlipke model')
-    [k_n, ...        % Omega_int - scaled speed vector
-    k_ch, ...         % Power_int - scaled load vector
-    Engine.G_e] ...           % ge_graf  - load characteristic matrix
-    = Shlipce_part_load_characteristic( ...
-    min(Ge_e), ...      % specific fuel consumption data
-    Engine.W_e .* T_e , ...   % power range data
-    Engine.W_e)             % speed range data
-    
-    % Для единообразия выходов:
-    Engine.T   = T_e * k_ch';      % заглушка, чтобы дальше не падало
-    w_load     = Engine.W_e;
-    X_opt      = []; 
-    
-figure('Color','w','Position',[100 100 1400 600]);
-
-subplot(1,2,1);
-contourf(Engine.W_e*Const.rpm, Engine.T, Engine.G_e, 20, 'LineColor','none');
-hold on; contour(Engine.W_e*Const.rpm, Engine.T, Engine.G_e, 10, 'k');
-colorbar;
-xlabel('Частота вращения, rpm'); ylabel('Момент, Н\cdotм');
-title('Изолинии g_e (вид сверху)'); grid on;
-
-subplot(1,2,2);
-surf(Engine.W_e*Const.rpm, Engine.T, Engine.G_e, 'EdgeColor','none');
-shading interp; colormap turbo; colorbar;
-xlabel('Частота вращения, rpm'); ylabel('Момент, Н\cdotм');
-zlabel('g_e, г/(кВт\cdotч)');
-title('3D-поверхность g_e(\omega, T)'); grid on; view(45, 30);
-  
-  
-else
-    if size(Ge_e,1) == 1 || size(Ge_e,2) == 1
-disp('Not enjoy data for use Willins model, use Shlipke model')
-T_partical_load = T_e(:) * Moment_coeff;   % part_load_momet_linear
-
-[Engine.G_e, w_load, Engine.T, X_opt, calib] = ...
-    partical_load_characteristic_func_10( ...
-    Engine.W_e, ...             % рад/с
-    T_partical_load, ...        % (N_w × N_T), Н·м
-    Engine.Pist_stroke, ...     % S, м
-    Engine.Diametr, ...         % B, м
-    Engine.Volume / Engine.Number_cil * 1e3, ...  % V_h на цилиндр, Л
-    Ge_e, ...                   % full-load b_e, г/(кВт·ч)
-    T_e, ...                    % full-load T, Н·м
-    Engine.Hu, ...              % 42.5 МДж/кг
-    Engine.Number_cil);         % z = 6
-
-        fprintf('\nИсточник k_1, k_3: %s\n', calib.k_source);
-fprintf('RMS full-load = %.2f %%, n_opt = %.0f rpm, eta_opt = %.4f\n', ...
-        calib.full_rms_pct, calib.n_opt_rpm, calib.eta_opt);
-    
-G_e = Engine.G_e;
-T   = Engine.T;              % = T_partical_load (матрица)
-W_e = Engine.W_e(:).' / Const.rpm;       % строка 1 x N_w
-
-N_w = numel(W_e);
-
-% --- Согласуем W с ориентацией T и G_e ---
-if size(T,2) == N_w
-    % T: (N_T x N_w) — столбцы = скорости
-    W = repmat(W_e, size(T,1), 1);     % (N_T x N_w)
-elseif size(T,1) == N_w
-    % T: (N_w x N_T) — строки = скорости
-    W = repmat(W_e.', 1, size(T,2));   % (N_w x N_T)
-else
-    error('Размерность T (%s) не согласована с длиной Engine.W_e (%d).', ...
-          mat2str(size(T)), N_w);
+% % % % Stable oriantation column
+if isrow(T_e) 
+    T_e= T_e(:);
+    disp('Oriantation engine Torque vector was changed')
 end
 
-G_e = Engine.G_e;
-T   = Engine.T;
-W_e = w_load / Const.rpm;   % рад/с → rpm
+if isrow(Engine.W_e) 
+    Engine.W_e = Engine.W_e(:);
+    disp('Oriantation engine Omega vector was changed')
+end
 
-N_w = numel(W_e);
-
-% --- Согласуем W с ориентацией T и G_e ---
-if size(T,2) == N_w
-    W = repmat(W_e, size(T,1), 1);
-elseif size(T,1) == N_w
-    W = repmat(W_e.', 1, size(T,2));
+if isrow(Ge_e) && (size(Ge_e,1) * size(Ge_e,2) ~= 1)
+    Engine.Ge_e = Engine.Ge_e(:);
+    disp('Oriantation engine Ge vector was changed')
 else
-    error('Размерность T (%s) не согласована с длиной w_load (%d).', ...
-          mat2str(size(T)), N_w);
-end
-
-% --- 3D-поверхность ---
-figure('Color','w','Position',[100 100 1000 750]);
-surf(W, T, G_e);
-colormap turbo; colorbar;
-xlabel('Скорость, rpm'); ylabel('Момент, Н\cdotм'); zlabel('g_e, г/(кВт\cdotч)');
-title('g_e(w, T) — по исходным точкам');
-grid on; view(45, 30); rotate3d on;
-
-% --- График сравнения full-load (если calib.points_full есть) ---
-if isfield(calib, 'points_full') && ~isempty(calib.points_full.n_rpm)
-    pf = calib.points_full;
-    figure('Color','w','Position',[100 100 900 500]);
-    plot(pf.n_rpm, pf.b_e_ref, 'ko-', 'LineWidth', 2, 'MarkerSize', 8); hold on;
-    plot(pf.n_rpm, pf.b_e_calc, 'rs--', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on;
-    xlabel('Скорость, rpm'); ylabel('b_e, г/(кВт·ч)');
-    legend('Паспорт (ВСХ)', 'Модель', 'Location', 'best');
-    title(sprintf('Full-load: RMS = %.2f %%, max|err| = %.2f %%', ...
-          calib.full_rms_pct, pf.max_abs_err_pct));
-
-    figure('Color','w','Position',[100 100 900 400]);
-    bar(pf.n_rpm, pf.error_pct, 'FaceColor', [0.3 0.6 0.9]);
-    hold on; yline(0, 'k-'); yline(2, 'r--', '+2%'); yline(-2, 'r--', '-2 %');
-    grid on;
-    xlabel('Скорость, rpm'); ylabel('Отклонение, %');
-    title(sprintf('Full-load: отклонение модели от паспорта (RMS = %.2f %%)', ...
-          calib.full_rms_pct));
-end
-
-figure('Color','w','Position',[100 100 1400 600]);
-
-subplot(1,2,1);
-contourf(W, T, G_e, 20, 'LineColor','none');
-hold on; contour(W, T, G_e, 10, 'k');
-colorbar;
-xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
-title('Изолинии g_e (вид сверху)'); grid on;
-
-subplot(1,2,2);
-surf(W, T, G_e, 'EdgeColor','none');
-shading interp; colormap turbo; colorbar;
-xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
-zlabel('g_e, г/(кВт\cdotч)');
-title('3D-поверхность'); grid on; view(45, 30);
-
-    
-    else
-% --- b_e — матрица (2D карта): уже есть, просто используем ---
-fprintf('b_e — матрица %s: используем как есть.\n', mat2str(size(Ge_e)));
-Engine.G_e = Ge_e;
-Engine.T   = T_e;
-w_load     = Engine.W_e;
-X_opt      = [];
-calib      = struct();
+    if isrow(Engine.W_e) && ~isvector(Ge_e)
+       Engine.Ge_e = Engine.Ge_e(:);
+       disp('Oriantation engine Ge vector was changed')
     end
 end
 
+
+
+% % %  Test with Willins function
+[Engine, info] = build_engine_map_func(Engine, Ge_e, T_e,...
+        Moment_coeff, Const, struct('plot', graphic_cr, 'verbose', true));
+
+% % %  Test with Shlipce function
+[Engine_shlipce, info] = build_engine_map_func(Engine, min(Ge_e), T_e,...
+    Moment_coeff, Const,struct('plot', graphic_cr, 'verbose', true));
+
+
 %% Definition real torque matrix with efficiency coefficient
+% % % Radius
+Vehicle.radius =...
+    ((Vehicle.Tire_1   *   Vehicle.Tire_2/100)      +     ...
+    ((25.4       *       Vehicle.Tire_R)    /   2))   /   1000;
+Vehicle.efficiency = Vehicle.eta_gb * Vehicle.eta_fd * Vehicle.eta_wr;
+
+
+% % % Transmission
+Vehicle.transmission = Vehicle.i_fd * Vehicle.i_wr * Vehicle.i_gb;
+
+% % % Realizable momet of engine
+Vehicle.Moment =...
+    Engine.T .* reshape(Vehicle.efficiency, 1, 1, [])*Engine.Coef_use;
+
+
+% % % Midel area
+Vehicle.Midel = Vehicle.C_m * Vehicle.H * Vehicle.B * Vehicle.C_d;
+
+% % % Inertion coefficient
+Vehicle.Delta =...
+    delta_f(Vehicle.transmission, Vehicle.efficiency,...
+    Vehicle.I_e, Vehicle.Wheel , Vehicle.I_w,...
+    Vehicle.radius, Vehicle.mass_f);
+
+% Speed, Accekeration
+[Road.Time, Road.Velocity, Road.Acceleration]...
+    = readRoadProfile(['Road_parametr\', Road.file_name], 1000, ...
+        struct('plot',graphic_cr, 'verbose', false));
+ 
+%% Definition Road-Vehicle parametr
+
+% % %  Force sopr 
+Road.F_sopr_rolling =...
+    Soprotivlenie_function(...
+    Road.f_r, Road.k_f, Road.alpha,...
+    Road.Velocity, Const.g, Vehicle.mass_f );
+
+% % %  Wozduh sopr
+Road.F_sopr_air =...
+   Air_resistance(Vehicle.C_d, Vehicle.Midel, Const.rho, Road.Velocity);  
+
+% % % 
+
 
 
 
