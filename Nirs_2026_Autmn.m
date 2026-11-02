@@ -278,87 +278,109 @@ plot_gears_maps2(Map.MM_up_h, Map.MM_up_speed, ...
              
  
 
-% %% 
-% for i = 1:size(Vehicle.Transmission,2)-1
-% %     i = 1
-%     for j = 1:size(Engine.Koeff_use,2)
-%             %%% Нулевые массивы для старта
-%             Calc_m.Speed    = zeros(1, size(Engine.W_e,1));
-%             Calc_m.Fx_air   = zeros(1, size(Engine.W_e,1));
-%             Calc_m.G_e      = zeros(1, size(Engine.W_e,1));
-% 
-%             Calc_m.Omega_2  = zeros(1, size(Engine.W_e,1));
-%             Calc_m.Fx_air_2 = zeros(1, size(Engine.W_e,1));
-%             Calc_m.G_e2     = zeros(1, size(Engine.W_e,1));
-% 
-%             for k = 1:size(Engine.W_e,1)
-% % % Частота вращения колёс считаю неизменой в момент переключения
-%             Calc_m.Speed(k)  = Engine.W_e(k,1) / Vehicle.Transmission(i);
-% % % % Определения коэффициента использования
-%             Calc_m.Engine_coef = Engine.Koeff_use(k,j);
-% % % %  Определение тягловой силы соответствуюещей данной скорости и подаче
-%             Calc_m.Fx_air(k) = Vehicle.Fx_air(k,j,i);
-% % % %  Определение удельного расхода для скорости и подачи
-%             Calc_m.G_e(k) = Engine.G_e(k, j);
-% % % %   Определение скорости которая достигается на следующей передаче
-%             Calc_m.Omega_2(k) = Calc_m.Speed(k) * Vehicle.Transmission(i+1);
-% 
-% % % %  Проверка что переключение не опустит двигатель на холостой ход
-%             if Calc_m.Omega_2(k) > min(Engine.W_e)
-% % % %  Определение возможных тягловых сил для данной частоты вращения
-%             Calc_m.Fx_air_2_pr = ...
-%                 interp1(Engine.W_e, Vehicle.Fx_air(:,:,i+1), Calc_m.Omega_2(k));
-% % % % Вычисление коэффициентов использования двигателя соответствующих скорости
-%             Calc_m.Engine_Use_pr = ...
-%                 interp1(Engine.W_e, Engine.Koeff_use, Calc_m.Omega_2(k));
-% % % % Определение коэффициентов использования обеспечивающих движение
-%             Calc_m.Engine_Use = ...
-%                 interp_find_all_linear(Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, Calc_m.Fx_air(k));
-% % % %  Проверка на существование коэффициентов использования
-%             if isempty(Calc_m.Engine_Use) || any(isnan(Calc_m.Engine_Use(:)))
-%                 disp('Увынск')
-%                 continue;
-%             end
-%             % % %  Проверка диапазона
-%             if max(Calc_m.Engine_Use) > max(Engine.Koeff_use(:)) ...
-%                     || max(Calc_m.Engine_Use) < min(Engine.Koeff_use(:))
-%                 disp('Увынск2')
-%                 continue;
-%             end
-%             Calc_m.Ge_int = interp1(Engine.W_e, Engine.G_e, Calc_m.Omega_2(k));
-% 
-%             Calc_m.Ge_2_pr = interp1(Calc_m.Engine_Use_pr, Calc_m.Ge_int, Calc_m.Engine_Use);
-% 
-%             [Calc_m.G_e2, Calc_m.index] = min(Calc_m.Ge_2_pr);
-%             Calc_m.Fx_air_2(k) = Calc_m.Fx_air_2_pr(Calc_m.index);
-%             else
-%                 continue;
-%             end
-% 
-% %           Calc_m.Fx_air_2(k) =  min(Calc_m.Fx_air_2_pr(Calc_m.Fx_air_2_pr>Calc_m.Fx_air(k)))
-% %             Calc_m.G_e2(k) = interp1(Engine.W_e, Engine.G_e(:,j), Calc_m.Omega_2(k));
-% 
-%             if Calc_m.Omega_2(k) < max(Engine.W_e)
-%                   if Calc_m.Fx_air(k) <= Calc_m.Fx_air_2(k)
-%                         if Calc_m.G_e2 < Calc_m.G_e(k)
-%                 disp('Переключение для экономичности')
-%                 Map.Ge_up_Speed(i,j) = Calc_m.Speed * 3.6 * Vehicle.radius;
-%                 Map.Ge_up_h(i,j)     = Calc_m.Engine_Use;
-%                 break
-%                         else
-%                           disp('Частота выше предельной')
-%                         end
-%                   else
-%                       disp('Недостаточная тяга')
-%                   end
-%             else
-%                 disp('Режим невыгоден')
-%             end
-% 
-%             end
-%  
-%     end
-% end
+%% до циклов
+clc
+clear Calc_m
+clear Map
+ 
+n_i = size(Vehicle.Transmission,2)-12;
+n_W = size(Engine.W_e,1);
+Calc_m.Engine_coef = zeros(n_W, size(Engine.Koeff_use,2));
+ 
+
+for i = 1:n_i
+    for j = 1:size(Engine.Koeff_use,2) 
+        Calc_m.Speed    = nan(1, n_W);
+        Calc_m.Fx_air   = nan(1, n_W);
+        Calc_m.G_e      = nan(1, n_W);
+        Calc_m.Omega_2  = nan(1, n_W);
+        Calc_m.Fx_air_2 = nan(1, n_W);
+        Calc_m.G_e2     = nan(1, n_W);
+
+        for k = 1:n_W
+% % Скорость (угловая скорость на выходе трансмиссии) для текущей передачи i
+Calc_m.Speed(k)  = Engine.W_e(k,1) / Vehicle.Transmission(i);
+
+% % Коэффициент использования двигателя в точке (обороты k, момент j)
+Calc_m.Engine_coef(k,j) = Engine.Koeff_use(k,j);
+
+% % Тягловая сила (за вычетом аэродинамики) для текущей передачи i,
+% % в точке (обороты k, момент j)
+Calc_m.Fx_air(k) = Vehicle.Fx_air(k,j,i);
+
+        if Engine.W_e(k,1) == Engine.W_e(end)
+                Map.Ge_up_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
+                Map.Ge_up_h(i,j)     = Calc_m.Engine_coef(k,j);
+                continue
+        end
+
+
+
+% % Удельный расход топлива для текущих оборотов k и момента j
+Calc_m.G_e(k)    = Engine.G_e(k, j);
+
+% % Обороты двигателя, которые установятся на следующей передаче i+1
+% % при той же скорости автомобиля (Speed неизменна в момент переключения)
+Calc_m.Omega_2(k) = Calc_m.Speed(k) * Vehicle.Transmission(i+1);
+
+% % Проверка: переключение не должно опустить двигатель на холостой ход
+% % (Omega_2 ниже минимальных оборотов) и не должно превысить максимальные
+% % обороты. Если условие не выполнено — пропускаем итерацию.
+if Calc_m.Omega_2(k) <= min(Engine.W_e) || ...
+   Calc_m.Omega_2(k) >= max(Engine.W_e)
+      continue;
+end
+ 
+% Сила на передаче i+1 при частоте Omega_2(k) — вектор по моментам
+Calc_m.Fx_air_2_pr = interp1(Engine.W_e, ...
+    Vehicle.Fx_air(:,:,i+1), Calc_m.Omega_2(k), 'linear', NaN);
+
+% Коэффициент использования при этой частоте (скаляр, момент j)
+Calc_m.Engine_Use_pr = interp1(Engine.W_e, ...
+    Engine.Koeff_use, Calc_m.Omega_2(k), 'linear', NaN);
+
+% % %  Определение возможных тягловых сил для данной частоты вращения
+% % %  на следующей передаче i+1 (вектор по моментам)
+Calc_m.Fx_air_2_pr = interp1(Engine.W_e, ...
+    Vehicle.Fx_air(:,:,i+1), Calc_m.Omega_2(k), 'linear', NaN);
+
+% % %  Определение коэффициентов использования, обеспечивающих
+% % %  движение с той же тягловой силой Fx_air(k)
+Calc_m.Engine_Use = interp_find_all_linear( ...
+    Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, Calc_m.Fx_air(k));
+
+            if isempty(Calc_m.Engine_Use) || any(isnan(Calc_m.Engine_Use(:)))
+                continue;
+            end
+% % %  Получения графика зависимости удельного расхода от коэф исп
+            Calc_m.Ge_2_int = interp1(Engine.W_e, Engine.G_e, ...
+                Calc_m.Omega_2(k), 'linear', NaN);            
+            
+% % %  Вычисление конкретных удельных расходов для использвоания обеспеч
+% % %  возможности смены передачи
+            Calc_m.Ge_2_pr = interp1(Calc_m.Engine_Use_pr,  Calc_m.Ge_2_int, ...
+                Calc_m.Engine_Use, 'linear', NaN)
+
+            if isempty(Calc_m.Ge_2_pr)
+                continue;
+            end
+
+            [Calc_m.G_e2, Calc_m.index] = min(Calc_m.Ge_2_pr);
+            Calc_m.Fx_air_2(k) = Calc_m.Fx_air_2_pr(Calc_m.index);
+
+            if  Calc_m.G_e2 < Calc_m.G_e(k)
+                if Calc_m.Fx_air_2(k) <Calc_m.Fx_air(k)
+                disp('Переключение для экономичности');
+                Map.Ge_up_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
+                Map.Ge_up_h(i,j)     = Calc_m.Engine_Use(Calc_m.index);
+                break;
+                end
+            end           
+        end
+    end
+end
+ 
+
 plot_gears_maps2(Map.Ge_up_h,Map.Ge_up_Speed, ...
                  Map.Ge_up_h , Map.Ge_up_Speed );
 
