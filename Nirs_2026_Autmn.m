@@ -16,7 +16,7 @@ clear way2func
 setupPlotDefaults();
 
 %% Input Data
-graphic_cr = true;
+graphic_cr = false;
 %% Standart constrant
 Const.g = 9.80665;
 Const.rho = 1.225;
@@ -26,7 +26,7 @@ Const.rpm = pi / 30;
 %% Road parametr
 
 Road.f_r = 0.007;    % % %  Coefficient of rolling resistance
-Road.mu = 0.7;       % % %  Tip-road friction coefficient
+Road.mu = 0.8;       % % %  Tip-road friction coefficient
 Road.k_f = 2.9e-4;      % % %  Coefficient of dependence of type rolling resistance on speed
 Road.alpha_max = 10; % % %  Maximum road angle
 Road.alpha = 0;
@@ -137,12 +137,29 @@ end
 % % %  Test with Willins function
 [Engine, info] = build_engine_map_func(Engine, Ge_e, T_e,...
         Moment_coeff, Const, struct('plot', graphic_cr, 'verbose', true));
+    
+Engine.Koeff_use = Engine.T ./ max(Engine.T,[],2);
 
-% % %  Test with Shlipce function
-[Engine_shlipce, info] = build_engine_map_func(Engine, min(Ge_e), T_e,...
-    Moment_coeff, Const,struct('plot', graphic_cr, 'verbose', true));
+% % % %  Test with Shlipce function
+% [Engine_shlipce, info] = build_engine_map_func(Engine, min(Ge_e), T_e,...
+%     Moment_coeff, Const,struct('plot', graphic_cr, 'verbose', true));
   
+    % --- Контуры + 3D ---
+    figure('Color','w','Position',[100 100 1400 600]);
 
+    subplot(1,2,1);
+    contourf(Engine.W_e, Engine.Koeff_use', Engine.G_e', 20, 'LineColor','none'); hold on;
+    contour(Engine.W_e, Engine.Koeff_use', Engine.G_e', 'k');
+    colorbar;
+    xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
+    title('Изолинии g_e (вид сверху)'); grid on;
+
+    subplot(1,2,2);
+    surf(Engine.W_e, Engine.Koeff_use', Engine.G_e', 'EdgeColor','none');
+    shading interp; colormap turbo; colorbar;
+    xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
+    zlabel('g_e, г/(кВт\cdotч)');
+    title('3D-поверхность'); grid on; view(45, 30);
 
 %% Definition real torque matrix with efficiency coefficient
 % Vehicle.Axle_x = Vehicle.Axle_x - Vehicle.CM_x;
@@ -198,7 +215,7 @@ figure
 hold on
 for i = 1:size(Vehicle.Fx_air,3)
 x = Engine.W_e;              % 53×1
-y = Engine.T(1, :);          % 1×16  (или T(:,1), если T — 16×53 по смыслу)
+y = Engine.Koeff_use(i, :);          % 1×16  (или T(:,1), если T — 16×53 по смыслу)
 [X, Y] = meshgrid(y, x);     % 53×16
 surf(X, Y, Vehicle.Fx_air(:,:,i));
 xlabel('T'); ylabel('W_e'); zlabel('Fx');
@@ -207,42 +224,136 @@ view(3); grid on; hold off;
 end
 
 DVS_1_torqe = [Engine.W_e, Engine.T(:,end)];
-
-[accel, Din_f, v] = Din_f_und_accel( ...
-        Vehicle.Transmission, ...          % u_tr
-        Vehicle.efficiency,  ...           % h_tr
-        Engine.Coef_use,     ...           % kch
-        Vehicle.Delta,       ...           % delta
-        'Геометрическое распределение', ... % Name
-        Vehicle.mass_f,      ...           % m
-        Const.g,             ...           % g
-        Vehicle.radius,      ...           % r0
-        DVS_1_torqe,         ...           % [W_e, T_e]
-        Vehicle.C_d,         ...           % c_x
-        Vehicle.Midel,       ...           % Area
-        Const.rho,           ...           % ro
-        Road.f_r,            ...           % f_speed_0
-        Road.k_f,            ...           % k_f
-        Road.alpha);                       % alpha
+% 
+% [accel, Din_f, v] = Din_f_und_accel( ...
+%         Vehicle.Transmission, ...          % u_tr
+%         Vehicle.efficiency,  ...           % h_tr
+%         Engine.Coef_use,     ...           % kch
+%         Vehicle.Delta,       ...           % delta
+%         'Геометрическое распределение', ... % Name
+%         Vehicle.mass_f,      ...           % m
+%         Const.g,             ...           % g
+%         Vehicle.radius,      ...           % r0
+%         DVS_1_torqe,         ...           % [W_e, T_e]
+%         Vehicle.C_d,         ...           % c_x
+%         Vehicle.Midel,       ...           % Area
+%         Const.rho,           ...           % ro
+%         Road.f_r,            ...           % f_speed_0
+%         Road.k_f,            ...           % k_f
+%         Road.alpha);                       % alpha
 %% Gear shifting map create
-    
+
 % % Max omega
-Map.MM_omega_Up = max(Engine.W_e) * Vehicle.radius *(1./Vehicle.Transmission)'*sign(Moment_coeff)*3.6;
-Map.MM_omega_Down = min(Engine.W_e) * Vehicle.radius *(1./Vehicle.Transmission)'*sign(Moment_coeff)*3.6;
+n_shift = size(Vehicle.Transmission, 2) - 1;   % X-1 переключений
+n_koeff = size(Engine.Koeff_use, 2);           % число коэффициентов (16)
 
+% --- Верхняя граница: скорости для каждой передачи, затем отбрасываем последнюю ---
+speed_up_all   = max(Engine.W_e) * Vehicle.radius ...
+                 ./ Vehicle.Transmission * 3.6;        % длина X
+speed_up_shift = speed_up_all(1:n_shift);              % длина X-1 (без последней)
 
-figure; hold on; grid on;
-for i = 1:size(Map.MM_omega_Down,2)
-plot(Engine.T(end,:)/max(Engine.T(end)), Map.MM_omega_Up(i,:), '-', 'LineWidth', 1.5, ...
-  'DisplayName', 'Up');
+% --- Нижняя граница: скорости для каждой передачи, затем отбрасываем первую ---
+speed_down_all   = min(Engine.W_e) * Vehicle.radius ...
+                   ./ Vehicle.Transmission * 3.6;      % длина X
+speed_down_shift = speed_down_all(2:end);              % длина X-1 (без первой)
 
-plot(Engine.T(end,:)/max(Engine.T(end)), Map.MM_omega_Down(i,:), '--', 'LineWidth', 1.5, ...
- 'DisplayName', 'Down');
+% --- Коэффициенты использования (1 × n_koeff) ---
+h_up   = max(Engine.Koeff_use, [], 1);   % максимум по оборотам для каждого коэффициента
+h_down = min(Engine.Koeff_use, [], 1);   % минимум по оборотам для каждого коэффициента
 
-xlabel('Moment, N·m'); ylabel('W\_e, rad/s');
-title('MM\_omega Up / Down');
-legend('Location', 'best');
+% --- Размножаем до размерности (n_shift × n_koeff) ---
+% h: одна и та же строка h_up/h_down повторяется n_shift раз
+Map.MM_up_h   = repmat(h_up,   n_shift, 1);   % (n_shift × n_koeff)
+Map.MM_down_h = repmat(h_down, n_shift, 1);   % (n_shift × n_koeff)
+
+% speed: один и тот же столбец speed_*_shift повторяется n_koeff раз
+Map.MM_up_speed   = repmat(speed_up_shift(:),   1, n_koeff);   % (n_shift × n_koeff)
+Map.MM_down_speed = repmat(speed_down_shift(:), 1, n_koeff);   % (n_shift × n_koeff)
+ 
+plot_gears_maps2(Map.MM_up_h, Map.MM_up_speed, ...
+                 Map.MM_down_h, Map.MM_down_speed);
+
+%% 
+for i = 1:size(Vehicle.Transmission,2)-1
+%     i = 1
+    for j = 1:size(Engine.Koeff_use,2)
+
+            Speed  = ones(1, size(Engine.W_e,1));
+             Fx_air = zeros(1, size(Engine.W_e,1));
+            G_e  = zeros(1, size(Engine.W_e,1));
+            
+            Omega_2  = zeros(1, size(Engine.W_e,1));
+            Fx_air_2  = zeros(1, size(Engine.W_e,1));
+            G_e2  = zeros(1, size(Engine.W_e,1));
+            
+            for k = 1:size(Engine.W_e,1)
+
+            Speed  = Engine.W_e(k) /Vehicle.Transmission(i);
+            Engine_coef(j,k) = Engine.Koeff_use(k,j);
+            Fx_air(k) = Vehicle.Fx_air(k,j,i);
+            G_e(k) = Engine.G_e(k, j);
+            
+            Omega_2(k) = Speed  * Vehicle.Transmission(i+1);
+            Fx_air_2_pr = interp1(Engine.W_e, Vehicle.Fx_air(:,:,i+1), Omega_2(k));
+            Fx_air_2(k) =  
+            
+            G_e2(k) = interp1(Engine.W_e, Engine.G_e(:,j), Omega_2(k));
+            
+            
+            if Omega_2(k) < max(Engine.W_e)  
+                  if Fx_air(k) <= Fx_air_2(k)
+                        if G_e2(k) < G_e(k)
+                disp('Переключение для экономичности')
+                Map.Ge_up_Speed(i,j) = Speed  * 3.6 *  Vehicle.radius;
+                Map.Ge_up_h(i,j) = Engine_coef(j,k);
+                break
+                        else
+                          disp('Частота выше предельной')  
+                        end
+                  else
+                      disp('Недостаточная тяга')
+                  end
+            else
+                disp('Режим невыгоден')
+            end
+            
+            if Engine.W_e(k)  == max(Engine.W_e)
+                disp('Переключение для по частоте')
+                Map.Ge_up_Speed(i,j) = Speed  * 3.6 * Vehicle.radius;
+                Map.Ge_up_h(i,j) = Engine_coef(j,k);
+            end
+        end
+% figure
+% hold on
+% plot(Speed, G_e,   'b-', 'LineWidth', 1.5)
+% plot(Speed, G_e2, 'r--','LineWidth', 1.5)
+% grid on
+% xlabel('Speed')
+% ylabel('G_e')
+% legend('G_e air', 'G_e2', 'Location', 'best')
+
+% figure
+% hold on
+% plot(Speed, Fx_air,   'b-', 'LineWidth', 1.5)
+% plot(Speed, Fx_air_2, 'r--','LineWidth', 1.5)
+% grid on
+% xlabel('Speed')
+% ylabel('F_x')
+% legend('F_x air', 'F_x air 2', 'Location', 'best')
+        
+    end
 end
+
+
+    figure
+    hold on
+    for i = 1:size(Vehicle.Transmission,2)-1 
+    plot(Map.Ge_up_h(i,:), Map.Ge_up_Speed(i,:) )
+    end
+ 
+plot_gears_maps2(Map.Ge_up_h,Map.Ge_up_Speed, ...
+                 Map.Ge_up_h , Map.Ge_up_Speed );
+
 %% Definition reaL Road-Vehicle parametr
 % % % % Speed, Accekeration
 % [Road.Time, Road.Velocity, Road.Acceleration]...

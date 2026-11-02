@@ -115,8 +115,6 @@ if n_gear > 8
 else
     legend(title_str, 'Location', 'best');
 end
- 
-
 saveas(gcf, Name_1, 'png');
 
 %% ---------- График ускорения ----------
