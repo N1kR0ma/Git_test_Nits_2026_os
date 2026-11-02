@@ -280,10 +280,11 @@ plot_gears_maps2(Map.MM_up_h, Map.MM_up_speed, ...
 
 %% до циклов
 clc
+close all
 clear Calc_m
 clear Map
  
-n_i = size(Vehicle.Transmission,2)-12;
+n_i = size(Vehicle.Transmission,2)-1;
 n_W = size(Engine.W_e,1);
 Calc_m.Engine_coef = zeros(n_W, size(Engine.Koeff_use,2));
  
@@ -313,9 +314,7 @@ Calc_m.Fx_air(k) = Vehicle.Fx_air(k,j,i);
                 Map.Ge_up_h(i,j)     = Calc_m.Engine_coef(k,j);
                 continue
         end
-
-
-
+        
 % % Удельный расход топлива для текущих оборотов k и момента j
 Calc_m.G_e(k)    = Engine.G_e(k, j);
 
@@ -339,6 +338,7 @@ Calc_m.Fx_air_2_pr = interp1(Engine.W_e, ...
 Calc_m.Engine_Use_pr = interp1(Engine.W_e, ...
     Engine.Koeff_use, Calc_m.Omega_2(k), 'linear', NaN);
 
+
 % % %  Определение возможных тягловых сил для данной частоты вращения
 % % %  на следующей передаче i+1 (вектор по моментам)
 Calc_m.Fx_air_2_pr = interp1(Engine.W_e, ...
@@ -349,30 +349,69 @@ Calc_m.Fx_air_2_pr = interp1(Engine.W_e, ...
 Calc_m.Engine_Use = interp_find_all_linear( ...
     Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, Calc_m.Fx_air(k));
 
-            if isempty(Calc_m.Engine_Use) || any(isnan(Calc_m.Engine_Use(:)))
+if isempty(Calc_m.Engine_Use) || any(isnan(Calc_m.Engine_Use(:)))
                 continue;
-            end
+end
+
+% 1. Находим коэффициенты использования на следующей передаче (i+1),
+% при которых сила тяги теоретически равна исходной Calc_m.Fx_air(k).
+% (Функция вернет вектор возможных корней, если их несколько).
+Calc_m.Engine_Use = interp_find_all_linear( ...
+    Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, Calc_m.Fx_air(k));
+
+if isempty(Calc_m.Engine_Use) || any(isnan(Calc_m.Engine_Use(:)))
+    continue;
+end
+
+% 2. Если корней несколько, нам нужен тот, который дает максимальную силу
+% (или тот, который вы выберете по логике). Давайте проверим все найденные точки:
+Calc_m.Fx_new_pr = interp1(Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, ...
+    Calc_m.Engine_Use, 'linear', NaN);
+
+if isempty(Calc_m.Fx_new_pr) || all(isnan(Calc_m.Fx_new_pr))
+    continue;
+end
+
+% Вычисляем максимальную силу, которую мы можем получить
+[Calc_m.Fx_new_max, Calc_m.idx_use] = max(Calc_m.Fx_new_pr);
+
+% 3. Сравнение максимальной новой силы с исходной Calc_m.Fx_air(k)
+if Calc_m.Fx_new_max >= Calc_m.Fx_air(k)
+    disp('На новой передаче тяга достаточная (сила >= текущей)');
+    
+    % Выбираем соответствующий коэффициент использования
+    Calc_m.Engine_Use_best = Calc_m.Engine_Use(Calc_m.idx_use);
+    
+    % Дальше можно проверить экономичность (удельный расход)
+    % ...
+else
+    disp('На новой передаче тяга недостаточная (сила < текущей)');
+end
+
 % % %  Получения графика зависимости удельного расхода от коэф исп
             Calc_m.Ge_2_int = interp1(Engine.W_e, Engine.G_e, ...
                 Calc_m.Omega_2(k), 'linear', NaN);            
             
-% % %  Вычисление конкретных удельных расходов для использвоания обеспеч
-% % %  возможности смены передачи
-            Calc_m.Ge_2_pr = interp1(Calc_m.Engine_Use_pr,  Calc_m.Ge_2_int, ...
-                Calc_m.Engine_Use, 'linear', NaN)
+% Вычисляем расходы для найденных коэффициентов
+Calc_m.Ge_2_pr = interp1(Calc_m.Engine_Use_pr, Calc_m.Ge_2_int, ...
+    Calc_m.Engine_Use, 'linear', NaN);
 
-            if isempty(Calc_m.Ge_2_pr)
-                continue;
-            end
+% Находим минимальный расход
+[Calc_m.G_e2, Calc_m.idx_min] = min(Calc_m.Ge_2_pr);
 
-            [Calc_m.G_e2, Calc_m.index] = min(Calc_m.Ge_2_pr);
-            Calc_m.Fx_air_2(k) = Calc_m.Fx_air_2_pr(Calc_m.index);
+% Берем коэффициент использования, который дал этот минимальный расход
+Calc_m.Engine_Use_best = Calc_m.Engine_Use(Calc_m.idx_min);
+
+% Вычисляем ТОЧНУЮ силу для этого коэффициента (перепроверка)
+% (можно взять из массива Fx_air_2_pr по индексу idx_min, если длины совпадают,
+% либо пересчитать через interp1 для надежности)
+Calc_m.Fx_air_2(k) = interp1(Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, Calc_m.Engine_Use_best, 'linear', NaN);
 
             if  Calc_m.G_e2 < Calc_m.G_e(k)
-                if Calc_m.Fx_air_2(k) <Calc_m.Fx_air(k)
+                if Calc_m.Fx_air_2(k) >= Calc_m.Fx_air(k)
                 disp('Переключение для экономичности');
                 Map.Ge_up_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
-                Map.Ge_up_h(i,j)     = Calc_m.Engine_Use(Calc_m.index);
+                Map.Ge_up_h(i,j)     = Calc_m.Engine_coef(k,j);
                 break;
                 end
             end           
