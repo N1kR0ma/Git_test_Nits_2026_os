@@ -1,43 +1,48 @@
 function [G_e, w_load, T_load, X_opt, calib] = partical_load_characteristic_func_10( ...
         w_load, T_load, D, B, V, b_e_fl, T_ref, H_u, z, ...
-        b_e_part, T_part, w_part)
-% PARTICAL_LOAD_CHARACTERISTIC_FUNC_10
-%   Карта удельного расхода топлива g_e(w, T) по методике
-%   Lauren et al. (2022), DOI: 10.3390/machines10010026.
+        b_e_part, T_part, w_part, L_opt, delta_bump, depth_target)
+% PARTICAL_LOAD_CHARACTERISTIC_FUNC_12
+%   Карта удельного расхода топлива g_e(w, T) по методике Lauren et al. (2022)
+%   с локальной параболической поправкой и ЯВНЫМ заданием глубины островка.
 %
-%   ОТЛИЧИЕ ОТ _6: ДВЕ ПАРАБОЛЫ eta_i(n) — СЛЕВА И СПРАВА ОТ МИНИМУМА b_e.
-%     1. Находим n_opt — точку минимума b_e_ref(n) (по данным).
-%     2. Разделяем диапазон: n <= n_opt (левая), n > n_opt (правая).
-%     3. Калибруем ДВЕ параболы отдельно, со сшивкой в n_opt:
-%          eta_L(n) = a_L1*w^2 + a_L2*w + a_L3,  n <= n_opt
-%          eta_R(n) = a_R1*w^2 + a_R2*w + a_R3,  n >  n_opt
-%        с условием eta_L(n_opt) = eta_R(n_opt) (непрерывность).
-%     4. k_1, k_3 — перебор 5x5 (как в _6).
+%   Новые входы:
+%     L_opt        — ориентировочное положение минимума b_e по нагрузке
+%                    (доля от полной, 0..1; например 0.9). По умолчанию 0.9.
+%     delta_bump   — сдвиг вершины поправки влево от L_opt (по умолчанию 0.1).
+%     depth_target — ЖЕЛАЕМАЯ относительная глубина островка (0..0.25).
+%                    b_e(L_opt) = (1 - depth_target) * b_e(1) при omega_opt.
+%                    По умолчанию 0.05 (5 %). При 0 — без поправки.
 %
-%   Вход/выход — как в _6.
-%
-%   ВАЖНО: перед вызовом сделайте
-%       clear functions; rehash
+%   Поправка: eta_eff(L) = eta_base(w) * (1 + a*phi(L)),
+%   phi(L) — кусочно-параболическая "шляпа" с максимумом 1 в L_c=L_opt-delta,
+%   равная 0 при L=0 и L=1.
 
     % =====================================================================
     %  БЛОК 0. ВХОДНЫЕ ПРОВЕРКИ
     % =====================================================================
     G_e = []; X_opt = []; calib = struct();
 
-    if nargin < 9  || isempty(z),        z = 1; end
+    if nargin < 9  || isempty(z),            z = 1; end
     if nargin < 10, b_e_part = []; end
     if nargin < 11, T_part   = []; end
     if nargin < 12, w_part   = []; end
+    if nargin < 13 || isempty(L_opt),        L_opt = 0.9; end
+    if nargin < 14 || isempty(delta_bump),   delta_bump = 0.1; end
+    if nargin < 15 || isempty(depth_target), depth_target = 0.07; end
+
+    L_opt        = min(max(L_opt, 0.05), 0.99);
+    delta_bump   = min(max(delta_bump, 0.01), L_opt - 0.01);
+    depth_target = min(max(depth_target, 0.0), 0.25);
 
     w_load = w_load(:).';
     T_ref  = T_ref(:).';
     b_e_fl = b_e_fl(:).';
 
     if numel(T_ref) ~= numel(w_load) || numel(b_e_fl) ~= numel(w_load)
-        error('partical_load_characteristic_func_10: T_ref и b_e_fl должны быть той же длины, что w_load.');
+        error('T_ref и b_e_fl должны быть той же длины, что w_load.');
     end
     if any(b_e_fl <= 0)
-        error('partical_load_characteristic_func_10: b_e_fl должен быть > 0.');
+        error('b_e_fl должен быть > 0.');
     end
 
     has_part = ~isempty(b_e_part) && ~isempty(T_part) && ~isempty(w_part);
@@ -46,10 +51,10 @@ function [G_e, w_load, T_load, X_opt, calib] = partical_load_characteristic_func
         T_part   = T_part(:).';
         w_part   = w_part(:).';
         if numel(b_e_part) ~= numel(T_part) || numel(T_part) ~= numel(w_part)
-            error('partical_load_characteristic_func_10: b_e_part, T_part, w_part должны быть одной длины.');
+            error('b_e_part, T_part, w_part должны быть одной длины.');
         end
         if any(b_e_part <= 0)
-            error('partical_load_characteristic_func_10: b_e_part должен быть > 0.');
+            error('b_e_part должен быть > 0.');
         end
     end
 
@@ -60,7 +65,7 @@ function [G_e, w_load, T_load, X_opt, calib] = partical_load_characteristic_func
     k_4_fix = 0.075;
 
     % =====================================================================
-    %  РАСШИРЕННАЯ СЕТКА k_1, k_3
+    %  СЕТКА k_1, k_3
     % =====================================================================
     k_1_grid = [120e3, 132e3, 144e3, 152e3, 160e3];
     k_3_grid = [1.1e-3, 1.2e-3, 1.3e-3, 1.45e-3, 1.6e-3];
@@ -68,157 +73,221 @@ function [G_e, w_load, T_load, X_opt, calib] = partical_load_characteristic_func
     k_3_ref  = 1.1e-3;
 
     % =====================================================================
-    %  ШАГ 1: НАХОДИМ n_opt — минимум b_e_ref
+    %  ПАРАМЕТРЫ ПОПРАВКИ
     % =====================================================================
-    [b_e_min, idx_min] = min(b_e_fl);
-    n_opt_rpm = w_load(idx_min) * 30/pi;
+    L_c     = max(0.02, L_opt - delta_bump);
+    s_left  = L_c;
+    s_right = 1 - L_c;
+    phi_opt = bump_phi(L_opt, L_c, s_left, s_right);
+
+    fprintf('\n===== ПОПРАВКА НА ОСТРОВОК =====\n');
+    fprintf('L_opt = %.3f, delta = %.3f, L_c = %.3f, s_left = %.3f, s_right = %.3f\n', ...
+            L_opt, delta_bump, L_c, s_left, s_right);
+    fprintf('phi(L_opt) = %.4f, depth_target = %.1f %%\n', ...
+            phi_opt, depth_target * 100);
+    if phi_opt < 1e-3
+        warning('phi(L_opt) близко к 0: островок не удастся сформировать при delta = %.3f. Уменьшите delta_bump.', delta_bump);
+    end
+
+    % =====================================================================
+    %  ШАГ 1: ОПОРНЫЕ ЧАСТОТЫ И КРАЕВЫЕ ТОЧКИ
+    % =====================================================================
+    omega_min = min(w_load);
+    omega_max = max(w_load);
+
+    [~, idx_min] = min(b_e_fl);
     omega_opt = w_load(idx_min);
 
-    % --- Локальная парабола через 3 точки вокруг минимума (уточнение) ---
     if idx_min > 1 && idx_min < numel(b_e_fl)
-        % 3 точки: idx_min-1, idx_min, idx_min+1
         x = w_load(idx_min-1:idx_min+1);
         y = b_e_fl(idx_min-1:idx_min+1);
         p = polyfit(x, y, 2);
-        omega_opt_refined = -p(2) / (2*p(1));
-        if omega_opt_refined > x(1) && omega_opt_refined < x(3)
-            omega_opt = omega_opt_refined;
-            n_opt_rpm = omega_opt * 30/pi;
-            fprintf('  Уточнение вершины параболой: n_opt = %.1f rpm\n', n_opt_rpm);
+        w_ref = -p(2) / (2*p(1));
+        if w_ref > x(1) && w_ref < x(3)
+            omega_opt = w_ref;
         end
     end
+    n_opt_rpm = omega_opt * 30/pi;
 
-    fprintf('\n===== ШАГ 1: ПОИСК МИНИМУМА b_e =====\n');
-    fprintf('b_e_min = %.2f г/(кВт·ч) при n = %.1f rpm\n', b_e_min, n_opt_rpm);
+    [~, i_min] = min(abs(w_load - omega_min));
+    [~, i_max] = min(abs(w_load - omega_max));
+    T_edge_min = T_ref(i_min);
+    T_edge_max = T_ref(i_max);
+    b_e_edge_min = b_e_fl(i_min);
+    b_e_edge_max = b_e_fl(i_max);
 
-    % --- Разделяем на левую и правую части ---
-    mask_L = w_load <= omega_opt;
-    mask_R = w_load >  omega_opt;
-    N_L = sum(mask_L);
-    N_R = sum(mask_R);
+    [~, i_opt] = min(abs(w_load - omega_opt));
+    T_opt = T_ref(i_opt);
+    b_e_opt_ref = b_e_fl(i_opt);
 
-    fprintf('Левая часть (n <= %.0f rpm): %d точек\n', n_opt_rpm, N_L);
-    fprintf('Правая часть (n >  %.0f rpm): %d точек\n', n_opt_rpm, N_R);
-
-    if N_L < 3 || N_R < 3
-        error('partical_load_characteristic_func_10: недостаточно точек слева/справа (N_L=%d, N_R=%d).', ...
-              N_L, N_R);
-    end
+    fprintf('\n===== ШАГ 1: ОПОРНЫЕ ТОЧКИ =====\n');
+    fprintf('w_min = %.1f rpm (T=%.1f, b_e=%.2f)\n', ...
+            omega_min*30/pi, T_edge_min, b_e_edge_min);
+    fprintf('w_opt = %.1f rpm (T=%.1f, b_e=%.2f)\n', ...
+            n_opt_rpm, T_opt, b_e_opt_ref);
+    fprintf('w_max = %.1f rpm (T=%.1f, b_e=%.2f)\n', ...
+            omega_max*30/pi, T_edge_max, b_e_edge_max);
 
     % =====================================================================
-    %  ШАГ 2: КАЛИБРОВКА ДВУХ ПАРАБОЛ (сшивка в n_opt)
+    %  ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: eta из b_e на полной нагрузке
     % =====================================================================
-    % X = [a_L1, a_L2, a_L3, a_R1, a_R2]  — 5 свободных
-    %   a_R3 = a_L1*w_opt^2 + a_L2*w_opt + a_L3 - a_R1*w_opt^2 - a_R2*w_opt
-    %   (сшивка: eta_L(w_opt) = eta_R(w_opt))
-    %
-    % Начальные значения: из статьи, обе параболы одинаковы
-    X0 = [-6.333e-7, 4.0333e-4, 0.3960, -6.333e-7, 4.0333e-4];
-    lb = [-2e-6,    1e-4,      0.35,   -2e-6,    1e-4];
-    ub = [-1e-7,    6e-4,      0.50,   -1e-7,    6e-4];
+    eta_from_be = @(omega, Tq, b_e, k1, k3) ...
+        compute_eta_from_be(omega, Tq, b_e, D, B, V, H_u, k_2_fix, k_4_fix, z, k1, k3);
 
-    obj_poly = @(X) sum( obj_full_two_parab(X, omega_opt, ...
-                        w_load, T_ref, b_e_fl, D, B, V, H_u, ...
-                        k_2_fix, k_4_fix, z, k_1_ref, k_3_ref).^2 ) / numel(w_load);
+    % =====================================================================
+    %  ШАГ 2: СОВМЕСТНЫЙ ПЕРЕБОР (k_1, k_3) И eta_opt
+    % =====================================================================
+    fprintf('\n===== ШАГ 2: перебор (k_1, k_3) x eta_opt =====\n');
 
-    opts_poly = optimoptions('fmincon', ...
-        'Display', 'off', ...
-        'Algorithm', 'interior-point', ...
-        'MaxIterations', 2000, ...
-        'MaxFunctionEvaluations', 10000, ...
-        'StepTolerance', 1e-12, ...
-        'OptimalityTolerance', 1e-12);
+    eta_opt_grid = [0.38, 0.40, 0.42, 0.44, 0.46, 0.48];
+    n1 = numel(k_1_grid);
+    n3 = numel(k_3_grid);
+    nO = numel(eta_opt_grid);
 
-    n_starts_A = 10;
-    rng(42);
+    best_fval    = inf;
+    best_k       = [k_1_ref, k_3_ref];
+    best_etaL    = NaN;
+    best_etaR    = NaN;
+    best_etaO    = NaN;
+    best_a       = [NaN, NaN, NaN];
+    best_a_bump  = 0;
+    score_table  = inf(n1, n3);
 
-    best_fval_A = inf;
-    best_X      = X0;
-    all_fval_A  = zeros(n_starts_A, 1);
+    for i1 = 1:n1
+        for i3 = 1:n3
+            k1 = k_1_grid(i1);
+            k3 = k_3_grid(i3);
 
-    fprintf('\n===== ШАГ 2: MULTI-START (%d стартов) две параболы =====\n', n_starts_A);
+            eta_L = eta_from_be(omega_min, T_edge_min, b_e_edge_min, k1, k3);
+            eta_R = eta_from_be(omega_max, T_edge_max, b_e_edge_max, k1, k3);
 
-    for kk = 1:n_starts_A
-        if kk == 1
-            X_start = X0;
-        else
-            X_start = lb + (ub - lb) .* rand(1, 5);
+            if ~isfinite(eta_L) || ~isfinite(eta_R) || eta_L <= 0 || eta_R <= 0
+                continue;
+            end
+
+            % --- амплитуда поправки для этой пары (k1,k3) ---
+            p_m_opt = k1 * (k_2_fix + k3 * D^2 * omega_opt^2) * sqrt(k_4_fix / B);
+            P_m_opt = p_m_opt * (V * 1e-3 * z) * (omega_opt / (2*pi)) / (4/2);
+            P_e_max_opt = T_opt * omega_opt;
+            K_opt = P_m_opt / P_e_max_opt;
+            a_bump = compute_bump_amplitude_depth(K_opt, L_opt, L_c, ...
+                                                  s_left, s_right, depth_target);
+
+            for iO = 1:nO
+                eta_opt = eta_opt_grid(iO);
+
+                w_nodes   = [omega_min, omega_opt, omega_max];
+                eta_nodes = [eta_L,     eta_opt,   eta_R];
+                a = polyfit(w_nodes, eta_nodes, 2);
+
+                % full-load: L=1, phi(1)=0 — поправка не влияет
+                r = obj_full_one_parab(a, w_load, T_ref, b_e_fl, D, B, V, H_u, ...
+                                       k_2_fix, k_4_fix, z, k1, k3);
+                fval = mean(r.^2);
+
+                if fval < score_table(i1, i3)
+                    score_table(i1, i3) = fval;
+                end
+
+                if fval < best_fval
+                    best_fval   = fval;
+                    best_k      = [k1, k3];
+                    best_etaL   = eta_L;
+                    best_etaR   = eta_R;
+                    best_etaO   = eta_opt;
+                    best_a      = a;
+                    best_a_bump = a_bump;
+                end
+            end
         end
-
-        [X_try, fval_try, ef] = fmincon(obj_poly, X_start, [],[],[],[], ...
-                                        lb, ub, [], opts_poly);
-
-        all_fval_A(kk) = fval_try;
-
-        if ef > 0 && fval_try < best_fval_A
-            best_fval_A = fval_try;
-            best_X      = X_try;
-        end
-
-        fprintf('  Start %2d/%2d: resnorm = %.6e (RMS %.3f %%), ef=%d\n', ...
-                kk, n_starts_A, fval_try, sqrt(fval_try)*100, ef);
     end
 
-    % --- Распаковка (a_R3 вычисляем из сшивки) ---
-    a_L1 = best_X(1); a_L2 = best_X(2); a_L3 = best_X(3);
-    a_R1 = best_X(4); a_R2 = best_X(5);
-    a_R3 = a_L1*omega_opt^2 + a_L2*omega_opt + a_L3 - a_R1*omega_opt^2 - a_R2*omega_opt;
+    a1 = best_a(1); a2 = best_a(2); a3 = best_a(3);
 
-    eta_opt_val = a_L1*omega_opt^2 + a_L2*omega_opt + a_L3;
-
-    fprintf('\nЛучший старт Шага 2:\n');
-    fprintf('Левая:  a_L1=%.4e, a_L2=%.4e, a_L3=%.4f\n', a_L1, a_L2, a_L3);
-    fprintf('Правая: a_R1=%.4e, a_R2=%.4e, a_R3=%.4f\n', a_R1, a_R2, a_R3);
-    fprintf('eta_i(n_opt=%.0f rpm) = %.4f (сшивка)\n', n_opt_rpm, eta_opt_val);
+    fprintf('\nЛучшая комбинация по full-load:\n');
+    fprintf('k_1 = %.0f Па, k_3 = %.4e, a_bump = %.4f\n', ...
+            best_k(1), best_k(2), best_a_bump);
+    fprintf('eta_L = %.4f, eta_opt = %.4f, eta_R = %.4f\n', ...
+            best_etaL, best_etaO, best_etaR);
     fprintf('resnorm (full-load) = %.6e, RMS = %.3f %%\n', ...
-            best_fval_A, sqrt(best_fval_A)*100);
+            best_fval, sqrt(best_fval)*100);
 
-    % --- Диагностика eta_i ---
-    n_rpm_grid = linspace(min(w_load), max(w_load), 200) * 30/pi;
-    omega_grid = n_rpm_grid * pi/30;
-    eta_grid = zeros(size(omega_grid));
-    for jj = 1:numel(omega_grid)
-        if omega_grid(jj) <= omega_opt
-            eta_grid(jj) = a_L1*omega_grid(jj)^2 + a_L2*omega_grid(jj) + a_L3;
-        else
-            eta_grid(jj) = a_R1*omega_grid(jj)^2 + a_R2*omega_grid(jj) + a_R3;
-        end
+    fprintf('\nСетка k_1 (строки) x k_3 (столбцы), full-load RMS, %%:\n');
+    fprintf('              ');
+    for i3 = 1:n3
+        fprintf('k_3=%.2e  ', k_3_grid(i3));
     end
-    fprintf('eta_i ∈ [%.4f, %.4f] на n ∈ [%.0f, %.0f] rpm\n', ...
-            min(eta_grid), max(eta_grid), min(n_rpm_grid), max(n_rpm_grid));
+    fprintf('\n');
+    for i1 = 1:n1
+        fprintf('k1=%3.0f кПа: ', k_1_grid(i1)/1000);
+        for i3 = 1:n3
+            fprintf('%9.2f  ', sqrt(score_table(i1,i3))*100);
+        end
+        fprintf('\n');
+    end
+
+    w_check = [omega_min, omega_opt, omega_max];
+    eta_chk = a1*w_check.^2 + a2*w_check + a3;
+    fprintf('Проверка узлов: eta(w_min)=%.4f, eta(w_opt)=%.4f, eta(w_max)=%.4f\n', ...
+            eta_chk(1), eta_chk(2), eta_chk(3));
 
     % =====================================================================
-    %  ШАГ 3: перебор k_1, k_3 (как в _6)
+    %  ШАГ 3: уточнение k_1, k_3 по part-load (если есть)
     % =====================================================================
-    fprintf('\n===== ШАГ 3: выбор k_1, k_3 (сетка 5x5 = 25) =====\n');
+    fprintf('\n===== ШАГ 3: уточнение k_1, k_3 по part-load =====\n');
 
     if has_part
-        fprintf('Есть part-load данные (%d точек) — выбор по ним.\n', numel(b_e_part));
-        best_score = inf;
-        best_k = [k_1_ref, k_3_ref];
-        best_label = 'AGCO';
-        n1 = numel(k_1_grid);
-        n3 = numel(k_3_grid);
-        score_table = zeros(n1, n3);
+        best_score_part = inf;
+        best_k_part     = best_k;
+        best_a_bump_part = best_a_bump;
+        best_label = sprintf('k1=%g,k3=%.2e', best_k(1)/1000, best_k(2));
+        score_part_table = zeros(n1, n3);
 
         for i1 = 1:n1
             for i3 = 1:n3
-                Ge_part = calc_Ge_two(X, omega_opt, w_part, T_part, D, B, V, H_u, ...
-                                      k_2_fix, k_4_fix, z, k_1_grid(i1), k_3_grid(i3));
+                k1 = k_1_grid(i1);
+                k3 = k_3_grid(i3);
+
+                eta_L = eta_from_be(omega_min, T_edge_min, b_e_edge_min, k1, k3);
+                eta_R = eta_from_be(omega_max, T_edge_max, b_e_edge_max, k1, k3);
+                if ~isfinite(eta_L) || ~isfinite(eta_R) || eta_L <= 0 || eta_R <= 0
+                    score_part_table(i1,i3) = inf;
+                    continue;
+                end
+
+                p_m_opt = k1 * (k_2_fix + k3 * D^2 * omega_opt^2) * sqrt(k_4_fix / B);
+                P_m_opt = p_m_opt * (V * 1e-3 * z) * (omega_opt / (2*pi)) / (4/2);
+                P_e_max_opt = T_opt * omega_opt;
+                K_opt = P_m_opt / P_e_max_opt;
+                a_bump = compute_bump_amplitude_depth(K_opt, L_opt, L_c, ...
+                                                      s_left, s_right, depth_target);
+
+                [~, iO_best] = min(arrayfun(@(iO) local_full_rms( ...
+                    eta_opt_grid(iO), eta_L, eta_R, omega_min, omega_opt, omega_max, ...
+                    w_load, T_ref, b_e_fl, D, B, V, H_u, k_2_fix, k_4_fix, z, k1, k3), ...
+                    1:nO));
+                eta_opt = eta_opt_grid(iO_best);
+
+                a = polyfit([omega_min, omega_opt, omega_max], ...
+                            [eta_L, eta_opt, eta_R], 2);
+
+                Ge_part = calc_Ge_one(a, w_part, T_part, D, B, V, H_u, ...
+                                      k_2_fix, k_4_fix, z, k1, k3, ...
+                                      a_bump, L_c, s_left, s_right, w_load, T_ref);
                 r_part = (Ge_part(:) - b_e_part(:)) ./ b_e_part(:);
                 r_part(~isfinite(r_part)) = 1e2;
                 score = mean(r_part.^2);
-                score_table(i1,i3) = score;
-                if score < best_score
-                    best_score = score;
-                    best_k = [k_1_grid(i1), k_3_grid(i3)];
-                    best_label = sprintf('k1=%g,k3=%.2e', ...
-                                         k_1_grid(i1)/1000, k_3_grid(i3));
+                score_part_table(i1,i3) = score;
+
+                if score < best_score_part
+                    best_score_part  = score;
+                    best_k_part      = [k1, k3];
+                    best_a_bump_part = a_bump;
                 end
             end
         end
 
-        fprintf('Сетка k_1 (строки) x k_3 (столбцы), RMS part-load ошибка, %%:\n');
+        fprintf('Сетка k_1 (строки) x k_3 (столбцы), part-load RMS, %%:\n');
         fprintf('              ');
         for i3 = 1:n3
             fprintf('k_3=%.2e  ', k_3_grid(i3));
@@ -227,70 +296,113 @@ function [G_e, w_load, T_load, X_opt, calib] = partical_load_characteristic_func
         for i1 = 1:n1
             fprintf('k1=%3.0f кПа: ', k_1_grid(i1)/1000);
             for i3 = 1:n3
-                fprintf('%9.2f  ', sqrt(score_table(i1,i3))*100);
+                fprintf('%9.2f  ', sqrt(score_part_table(i1,i3))*100);
             end
             fprintf('\n');
         end
 
-        fprintf('Выбрано: k_1 = %.0f Па, k_3 = %.4e, part-load RMS = %.2f %%\n', ...
-                best_k(1), best_k(2), sqrt(best_score)*100);
+        fprintf('Выбрано по part-load: k_1 = %.0f Па, k_3 = %.4e, a_bump = %.4f, RMS = %.2f %%\n', ...
+                best_k_part(1), best_k_part(2), best_a_bump_part, sqrt(best_score_part)*100);
+
+        eta_L = eta_from_be(omega_min, T_edge_min, b_e_edge_min, best_k_part(1), best_k_part(2));
+        eta_R = eta_from_be(omega_max, T_edge_max, b_e_edge_max, best_k_part(1), best_k_part(2));
+
+        rms_by_etaO = arrayfun(@(iO) local_full_rms( ...
+            eta_opt_grid(iO), eta_L, eta_R, omega_min, omega_opt, omega_max, ...
+            w_load, T_ref, b_e_fl, D, B, V, H_u, k_2_fix, k_4_fix, z, ...
+            best_k_part(1), best_k_part(2)), 1:nO);
+        [best_full_rms, iO_best] = min(rms_by_etaO);
+        eta_opt = eta_opt_grid(iO_best);
+        a = polyfit([omega_min, omega_opt, omega_max], ...
+                    [eta_L, eta_opt, eta_R], 2);
+        best_fval    = best_full_rms^2;
+        best_etaL    = eta_L;
+        best_etaR    = eta_R;
+        best_etaO    = eta_opt;
+        best_a       = a;
+        best_k       = best_k_part;
+        best_a_bump  = best_a_bump_part;
+        best_label   = sprintf('k1=%g,k3=%.2e', best_k(1)/1000, best_k(2));
+
+        full_rms_pct = best_full_rms * 100;
+        part_rms_pct = sqrt(best_score_part) * 100;
     else
-        fprintf('Part-load данных нет — фиксируем AGCO (Table 5).\n');
-        best_k = [k_1_ref, k_3_ref];
-        best_label = 'AGCO';
-        best_score = NaN;
+        fprintf('Part-load данных нет — оставляем k_1, k_3 по full-load.\n');
+        best_label   = sprintf('k1=%g,k3=%.2e', best_k(1)/1000, best_k(2));
+        full_rms_pct = sqrt(best_fval) * 100;
+        part_rms_pct = NaN;
     end
+
+    a1 = best_a(1); a2 = best_a(2); a3 = best_a(3);
 
     % =====================================================================
     %  ИТОГ
     % =====================================================================
-    X_opt = [a_L1, a_L2, a_L3, a_R1, a_R2, a_R3, best_k(1), best_k(2)];
+    X_opt = [a1, a2, a3, best_k(1), best_k(2)];
 
     fprintf('\n===== ИТОГ =====\n');
-    fprintf('X_opt = [a_L1, a_L2, a_L3, a_R1, a_R2, a_R3, k_1, k_3]:\n');
+    fprintf('X_opt = [a1, a2, a3, k_1, k_3]:\n');
     disp(X_opt);
-    fprintf('n_opt = %.1f rpm (минимум b_e)\n', n_opt_rpm);
+    fprintf('Опорные eta: eta_L=%.4f, eta_opt=%.4f (w_opt=%.1f rpm), eta_R=%.4f\n', ...
+            best_etaL, best_etaO, n_opt_rpm, best_etaR);
+    fprintf('Поправка: L_opt=%.3f, L_c=%.3f, a_bump=%.4f, depth_target=%.1f %%\n', ...
+            L_opt, L_c, best_a_bump, depth_target*100);
     fprintf('Fixed: k_2 = %.2f, k_4 = %.3f m, z = %d, H_u = %.1f МДж/кг\n', ...
             k_2_fix, k_4_fix, z, H_u);
-
-    w_mid = mean(w_load);
-    p_m_mid = best_k(1) * (k_2_fix + best_k(2)*D^2*w_mid^2) * sqrt(k_4_fix/B);
-    fprintf('p_m на средней скорости (%.1f кПа)\n', p_m_mid/1000);
-
-    full_rms_pct = sqrt(best_fval_A) * 100;
-    if has_part
-        part_rms_pct = sqrt(best_score) * 100;
-    else
-        part_rms_pct = NaN;
-    end
     fprintf('ФИНАЛ: full-load RMS = %.2f %%, part-load RMS = %.2f %%\n', ...
             full_rms_pct, part_rms_pct);
 
     % =====================================================================
+    %  ПРОВЕРКА: положение и глубина минимума b_e при omega_opt
+    % =====================================================================
+    fprintf('\n===== ПРОВЕРКА ОСТРОВКА (при omega_opt) =====\n');
+    L_scan = linspace(0.05, 1.0, 60);
+    T_scan = L_scan * T_opt;
+    W_scan = omega_opt * ones(size(T_scan));
+    Ge_scan = calc_Ge_one([a1, a2, a3], W_scan, T_scan, D, B, V, H_u, ...
+                          k_2_fix, k_4_fix, z, best_k(1), best_k(2), ...
+                          best_a_bump, L_c, s_left, s_right, w_load, T_ref);
+    [Ge_min, iL] = min(Ge_scan);
+    L_star = L_scan(iL);
+    Ge_at_1 = Ge_scan(end);
+    depth_achieved = (Ge_at_1 - Ge_min) / Ge_at_1;
+
+    fprintf('L* = %.3f (цель L_opt = %.3f)\n', L_star, L_opt);
+    fprintf('b_e_min = %.2f г/кВт·ч при L = %.3f\n', Ge_min, L_star);
+    fprintf('b_e(1.0) = %.2f г/кВт·ч\n', Ge_at_1);
+    fprintf('Глубина (достигнутая) = %.2f %% (цель = %.2f %%)\n', ...
+            depth_achieved*100, depth_target*100);
+    fprintf('b_e(L=0.5)=%.2f, b_e(L=0.7)=%.2f, b_e(L=0.9)=%.2f, b_e(L=1.0)=%.2f\n', ...
+            interp1(L_scan, Ge_scan, 0.5), ...
+            interp1(L_scan, Ge_scan, 0.7), ...
+            interp1(L_scan, Ge_scan, 0.9), ...
+            Ge_at_1);
+
+    % =====================================================================
     %  ТАБЛИЦА ОТКЛОНЕНИЙ (full-load)
     % =====================================================================
-    Ge_full_calc = calc_Ge_two(X_opt, omega_opt, w_load, T_ref, D, B, V, H_u, ...
-                               k_2_fix, k_4_fix, z, best_k(1), best_k(2));
+    Ge_full_calc = calc_Ge_one([a1, a2, a3], w_load, T_ref, D, B, V, H_u, ...
+                               k_2_fix, k_4_fix, z, best_k(1), best_k(2), ...
+                               best_a_bump, L_c, s_left, s_right, w_load, T_ref);
     pts_full = pack_points(w_load, T_ref, b_e_fl, Ge_full_calc, 'full');
 
     fprintf('\n===== ОТКЛОНЕНИЯ ПО ТОЧКАМ (full-load) =====\n');
-    fprintf('%8s %10s %12s %12s %10s %6s\n', ...
-            'n, rpm', 'T, Н·м', 'b_e_ref', 'b_e_calc', 'error, %', 'side');
+    fprintf('%8s %10s %12s %12s %10s\n', ...
+            'n, rpm', 'T, Н·м', 'b_e_ref', 'b_e_calc', 'error, %');
     for ii = 1:numel(pts_full.n_rpm)
-        side = 'L';
-        if pts_full.n_rpm(ii) * pi/30 > omega_opt, side = 'R'; end
-        fprintf('%8.1f %10.1f %12.2f %12.2f %10.2f %6s\n', ...
+        fprintf('%8.1f %10.1f %12.2f %12.2f %10.2f\n', ...
                 pts_full.n_rpm(ii), pts_full.T(ii), ...
                 pts_full.b_e_ref(ii), pts_full.b_e_calc(ii), ...
-                pts_full.error_pct(ii), side);
+                pts_full.error_pct(ii));
     end
 
     % =====================================================================
     %  ТАБЛИЦА ОТКЛОНЕНИЙ (part-load)
     % =====================================================================
     if has_part
-        Ge_part_calc = calc_Ge_two(X_opt, omega_opt, w_part, T_part, D, B, V, H_u, ...
-                                   k_2_fix, k_4_fix, z, best_k(1), best_k(2));
+        Ge_part_calc = calc_Ge_one([a1, a2, a3], w_part, T_part, D, B, V, H_u, ...
+                                   k_2_fix, k_4_fix, z, best_k(1), best_k(2), ...
+                                   best_a_bump, L_c, s_left, s_right, w_load, T_ref);
         pts_part = pack_points(w_part, T_part, b_e_part, Ge_part_calc, 'part');
 
         fprintf('\n===== ОТКЛОНЕНИЯ ПО ТОЧКАМ (part-load) =====\n');
@@ -312,25 +424,34 @@ function [G_e, w_load, T_load, X_opt, calib] = partical_load_characteristic_func
     %  СТРУКТУРА calib
     % =====================================================================
     calib = struct( ...
-        'a_L1',          a_L1, ...
-        'a_L2',          a_L2, ...
-        'a_L3',          a_L3, ...
-        'a_R1',          a_R1, ...
-        'a_R2',          a_R2, ...
-        'a_R3',          a_R3, ...
-        'n_opt_rpm',     n_opt_rpm, ...
-        'eta_opt',       eta_opt_val, ...
-        'k_1',           best_k(1), ...
-        'k_3',           best_k(2), ...
-        'resnorm_full',  best_fval_A, ...
-        'resnorm_part',  best_score, ...
-        'k_source',      best_label, ...
-        'full_rms_pct',  full_rms_pct, ...
-        'part_rms_pct',  part_rms_pct, ...
-        'n_starts_A',    n_starts_A, ...
-        'all_fval_A',    all_fval_A, ...
-        'points_full',   pts_full, ...
-        'points_part',   pts_part);
+        'a1',             a1, ...
+        'a2',             a2, ...
+        'a3',             a3, ...
+        'eta_L',          best_etaL, ...
+        'eta_opt',        best_etaO, ...
+        'eta_R',          best_etaR, ...
+        'omega_min',      omega_min, ...
+        'omega_opt',      omega_opt, ...
+        'omega_max',      omega_max, ...
+        'n_opt_rpm',      n_opt_rpm, ...
+        'k_1',            best_k(1), ...
+        'k_3',            best_k(2), ...
+        'resnorm_full',   best_fval, ...
+        'k_source',       best_label, ...
+        'full_rms_pct',   full_rms_pct, ...
+        'part_rms_pct',   part_rms_pct, ...
+        'points_full',    pts_full, ...
+        'points_part',    pts_part, ...
+        'L_opt',          L_opt, ...
+        'L_c',            L_c, ...
+        's_left',         s_left, ...
+        's_right',        s_right, ...
+        'a_bump',         best_a_bump, ...
+        'delta_bump',     delta_bump, ...
+        'depth_target',   depth_target, ...
+        'L_star',         L_star, ...
+        'depth_achieved', depth_achieved, ...
+        'Ge_min',         Ge_min);
 
     % =====================================================================
     %  ПОСТРОЕНИЕ КАРТЫ
@@ -349,8 +470,9 @@ function [G_e, w_load, T_load, X_opt, calib] = partical_load_characteristic_func
               mat2str(sz), N_w);
     end
 
-    G_e = calc_Ge_two(X_opt, omega_opt, W_grid, T_grid, D, B, V, H_u, ...
-                      k_2_fix, k_4_fix, z, best_k(1), best_k(2));
+    G_e = calc_Ge_one([a1, a2, a3], W_grid, T_grid, D, B, V, H_u, ...
+                      k_2_fix, k_4_fix, z, best_k(1), best_k(2), ...
+                      best_a_bump, L_c, s_left, s_right, w_load, T_ref);
 
     if ~isequal(size(G_e), size(T_load))
         error('G_e size [%s] ~= T_load size [%s].', ...
@@ -359,15 +481,69 @@ function [G_e, w_load, T_load, X_opt, calib] = partical_load_characteristic_func
 end
 
 % ======================================================================
-function r = obj_full_two_parab(X, omega_opt, w, T, b_e_fl, D, B, V, H_u, k2, k4, z, k1, k3)
-% OBJ_FULL_TWO_PARAB  Full-load невязки для двух парабол.
-%   X = [a_L1, a_L2, a_L3, a_R1, a_R2]  (a_R3 вычисляется из сшивки)
-    a_L1 = X(1); a_L2 = X(2); a_L3 = X(3);
-    a_R1 = X(4); a_R2 = X(5);
-    a_R3 = a_L1*omega_opt^2 + a_L2*omega_opt + a_L3 - a_R1*omega_opt^2 - a_R2*omega_opt;
+function phi = bump_phi(L, L_c, s_left, s_right)
+% BUMP_PHI  Кусочно-параболическая "шляпа": 1 в L_c, 0 при L=0 и L=1.
+    L = min(max(L, 0), 1);
+    phi = zeros(size(L));
+    mask_l = L <= L_c;
+    mask_r = L >  L_c;
+    if any(mask_l(:))
+        phi(mask_l) = 1 - ((L(mask_l) - L_c)/s_left).^2;
+    end
+    if any(mask_r(:))
+        phi(mask_r) = 1 - ((L(mask_r) - L_c)/s_right).^2;
+    end
+    phi = max(phi, 0);
+end
 
-    X_full = [a_L1, a_L2, a_L3, a_R1, a_R2, a_R3, k1, k3];
-    Ge = calc_Ge_two(X_full, omega_opt, w, T, D, B, V, H_u, k2, k4, z, k1, k3);
+% ======================================================================
+function a = compute_bump_amplitude_depth(K, L_opt, L_c, s_left, s_right, depth_target)
+% COMPUTE_BUMP_AMPLITUDE_DEPTH
+%   Амплитуда a из условия b_e(L_opt) = (1 - depth_target) * b_e(L=1)
+%   при фиксированной omega_opt, где K = P_m/P_e,max.
+    if depth_target <= 0
+        a = 0; return;
+    end
+    phi_opt = bump_phi(L_opt, L_c, s_left, s_right);
+    if phi_opt <= 1e-6
+        a = 0; return;
+    end
+    ratio = (1 + K/L_opt) / ((1 + K) * (1 - depth_target));
+    a = (ratio - 1) / phi_opt;
+    if ~isfinite(a) || a <= 0
+        a = 0;
+    end
+    a = min(max(a, 0), 0.8);
+end
+
+% ======================================================================
+function eta = compute_eta_from_be(omega, Tq, b_e, D, B, V, H_u, k_2, k_4, z, k1, k3)
+% COMPUTE_ETA_FROM_BE  eta из b_e на полной нагрузке (L=1, phi=0).
+    tact = 4;  s_r = tact/2;
+    P_e  = Tq * omega;
+    if abs(P_e) < 1
+        eta = NaN; return;
+    end
+    p_m = k1 * (k_2 + k3*D^2*omega^2) * sqrt(k_4/B);
+    V_total_m3 = V * 1e-3 * z;
+    P_m2 = p_m * V_total_m3 * (omega/(2*pi)) / s_r;
+    eta = (P_e + P_m2) / (P_e * b_e * H_u/3.6e3);
+end
+
+% ======================================================================
+function rms = local_full_rms(eta_opt, eta_L, eta_R, w_min, w_opt, w_max, ...
+                              w, T, b_e_fl, D, B, V, H_u, k2, k4, z, k1, k3)
+% LOCAL_FULL_RMS  full-load RMS (L=1, поправка не влияет).
+    a = polyfit([w_min, w_opt, w_max], [eta_L, eta_opt, eta_R], 2);
+    r = obj_full_one_parab(a, w, T, b_e_fl, D, B, V, H_u, k2, k4, z, k1, k3);
+    rms = sqrt(mean(r.^2));
+end
+
+% ======================================================================
+function r = obj_full_one_parab(a, w, T, b_e_fl, D, B, V, H_u, k2, k4, z, k1, k3)
+% OBJ_FULL_ONE_PARAB  Full-load невязки (поправка не влияет при L=1).
+    Ge = calc_Ge_one(a, w, T, D, B, V, H_u, k2, k4, z, k1, k3, ...
+                     0, 0.5, 0.5, 0.5, [], []);
     r = (Ge(:).' - b_e_fl(:).') ./ b_e_fl(:).';
     bad = ~isfinite(r);
     if any(bad)
@@ -376,22 +552,26 @@ function r = obj_full_two_parab(X, omega_opt, w, T, b_e_fl, D, B, V, H_u, k2, k4
 end
 
 % ======================================================================
-function Ge_calc = calc_Ge_two(X_full, omega_opt, w, T, D, B, V, H_u, k_2, k_4, z, k1, k3)
-% CALC_GE_TWO  Удельный расход с двумя параболами eta_i.
-%   X_full = [a_L1, a_L2, a_L3, a_R1, a_R2, a_R3, k_1, k_3]
+function Ge_calc = calc_Ge_one(X, w, T, D, B, V, H_u, k_2, k_4, z, k1, k3, ...
+                               a_bump, L_c, s_left, s_right, w_load, T_ref)
+% CALC_GE_ONE  Удельный расход с учётом локальной поправки на островок.
     tact = 4;  s_r = tact/2;
 
-    a_L1 = X_full(1); a_L2 = X_full(2); a_L3 = X_full(3);
-    a_R1 = X_full(4); a_R2 = X_full(5); a_R3 = X_full(6);
+    a1 = X(1); a2 = X(2); a3 = X(3);
 
     omega = w;
+    eta_base = a1*omega.^2 + a2*omega + a3;
 
-    % --- eta_i: две параболы со сшивкой в omega_opt ---
-    eta = zeros(size(omega));
-    mask_L = omega <= omega_opt;
-    mask_R = omega >  omega_opt;
-    eta(mask_L) = a_L1*omega(mask_L).^2 + a_L2*omega(mask_L) + a_L3;
-    eta(mask_R) = a_R1*omega(mask_R).^2 + a_R2*omega(mask_R) + a_R3;
+    % --- относительная нагрузка L = T/T_max(omega) ---
+    if nargin >= 16 && ~isempty(w_load) && ~isempty(T_ref) && a_bump > 0
+        T_max = reshape(interp1(w_load, T_ref, omega(:), 'linear', 'extrap'), size(omega));
+        L = T ./ T_max;
+        L = min(max(L, 0), 1);
+        phi = bump_phi(L, L_c, s_left, s_right);
+        eta_eff = eta_base .* (1 + a_bump * phi);
+    else
+        eta_eff = eta_base;
+    end
 
     P_e = T .* omega;
 
@@ -401,14 +581,14 @@ function Ge_calc = calc_Ge_two(X_full, omega_opt, w, T, D, B, V, H_u, k_2, k_4, 
     P_m2 = p_m .* V_total_m3 .* (omega / (2*pi)) / s_r;
 
     P_i = P_e + P_m2;
-    P_f = P_i ./ eta;
+    P_f = P_i ./ eta_eff;
 
     P_e_safe = abs(P_e);
     P_e_safe(P_e_safe < 1) = NaN;
 
     Ge_calc = (P_f ./ P_e_safe) .* (3.6e3 / H_u);
 
-    bad = (eta <= 0) | ~isfinite(eta) | ~isfinite(Ge_calc) | (Ge_calc <= 0);
+    bad = (eta_eff <= 0) | ~isfinite(eta_eff) | ~isfinite(Ge_calc) | (Ge_calc <= 0);
     Ge_calc(bad) = NaN;
 end
 

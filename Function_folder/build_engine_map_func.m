@@ -145,10 +145,14 @@ function plot_scalar_case(Engine, Const)
     figure('Color','w','Position',[100 100 1400 600]);
 
     X_axis = Engine.W_e(:)' * Const.rpm;                        % 1×N
-    Y_axis = linspace(min(Engine.T(:)), max(Engine.T(:)), 16);  % 16×1
     Z      = Engine.G_e.';                                      % 16×N
-
+    Y_axis = linspace(min(Engine.T(:)), max(Engine.T(:)), size(Z,1));  % size(Z,1)×1
+    
     subplot(1,2,1);
+fprintf('size(X_axis)=%s  size(Y_axis)=%s  size(Z)=%s\n', ...
+    mat2str(size(X_axis)), mat2str(size(Y_axis)), mat2str(size(Z)));
+fprintf('size(Engine.G_e)=%s  size(Engine.T)=%s\n', ...
+    mat2str(size(Engine.G_e)), mat2str(size(Engine.T)));
     contourf(X_axis, Y_axis, Z, 20, 'LineColor','none'); hold on;
     contour(X_axis, Y_axis, Z, 10, 'k');
     colorbar;
@@ -164,6 +168,7 @@ function plot_scalar_case(Engine, Const)
 end
 
 
+ 
 function plot_vector_case(Engine, w_load, Const, calib)
     G_e = Engine.G_e;
     T   = Engine.T;
@@ -171,26 +176,101 @@ function plot_vector_case(Engine, w_load, Const, calib)
 
     N_w = numel(W_e);
 
-    % Согласуем W с ориентацией T
     if size(T,2) == N_w
-        W = repmat(W_e(:).', size(T,1), 1);   % столбцы = скорости
+        W = repmat(W_e(:).', size(T,1), 1);
     elseif size(T,1) == N_w
-        W = repmat(W_e(:),   1, size(T,2));   % строки = скорости
+        W = repmat(W_e(:),   1, size(T,2));
     else
         error('Размерность T (%s) не согласована с длиной w_load (%d).', ...
               mat2str(size(T)), N_w);
     end
 
-    % --- 3D-поверхность по исходным точкам ---
-    figure('Color','w','Position',[100 100 1000 750]);
-    surf(W, T, G_e);
-    colormap turbo; colorbar;
-    xlabel('Скорость, rpm'); ylabel('Момент, Н\cdotм');
-    zlabel('g_e, г/(кВт\cdotч)');
-    title('g_e(w, T) — по исходным точкам');
-    grid on; view(45, 30); rotate3d on;
+    % =====================================================================
+    %  УМНЫЕ УРОВНИ КОНТУРОВ: ПЛОТНО У МИНИМУМА, РЕДКО К МАКСИМУМУ
+    % =====================================================================
+    g_all = G_e(isfinite(G_e));
+    g_min = min(g_all);
+    g_max = max(g_all);
+    R     = g_max - g_min;
 
-    % --- Сравнение full-load с паспортом ---
+    if R > 0
+        % 1) плотные уровни в зоне "ямы" (0..15% диапазона от минимума)
+        n_pit   = 25;
+        n_outer = 15;
+        span_pit = 0.15 * R;
+
+        levels_pit   = linspace(g_min, g_min + span_pit, n_pit);
+        levels_outer = linspace(g_min + span_pit, g_max, n_outer);
+        levels = unique([levels_pit, levels_outer]);
+
+        % 2) подсветка "ямы": первые ~10% диапазона — красным
+        levels_island = levels(levels <= g_min + 0.10 * R);
+    else
+        levels        = g_min;
+        levels_island = [];
+    end
+
+    % =====================================================================
+    %  ПОЛОЖЕНИЕ МИНИМУМА
+    % =====================================================================
+    [gv, idx] = min(G_e(:));
+    [ii, jj]  = ind2sub(size(G_e), idx);
+    W_min = W(ii, jj);
+    T_min = T(ii, jj);
+
+    % =====================================================================
+    %  КОНТУРНЫЙ ГРАФИК (вид сверху)
+    % =====================================================================
+    figure('Color','w','Position',[100 100 1400 600]);
+
+    subplot(1,2,1);
+    % заливка: много уровней для плавности (не привязана к линиям)
+    contourf(W, T, G_e, 60, 'LineStyle', 'none'); hold on;
+    % рабочие изолинии — плотные у минимума
+    contour(W, T, G_e, levels, 'k', 'LineWidth', 0.6);
+    % подсветка зоны минимума
+    if ~isempty(levels_island) && numel(levels_island) >= 2
+        contour(W, T, G_e, levels_island, 'r', 'LineWidth', 1.5);
+    end
+    % маркер минимума
+    plot(W_min, T_min, 'kp', 'MarkerSize', 14, ...
+         'MarkerFaceColor','y', 'MarkerEdgeColor','k', 'LineWidth', 1);
+    text(W_min, T_min, sprintf('  %.1f', gv), ...
+         'FontSize', 10, 'FontWeight', 'bold');
+
+    colorbar;
+    colormap turbo;
+    caxis([g_min, g_max]);
+    xlabel('Скорость, rpm'); ylabel('Момент, Н\cdotм');
+    title(sprintf('Изолинии g_e (min = %.1f, max = %.1f г/(кВт·ч))', g_min, g_max));
+    grid on;
+
+    % =====================================================================
+    %  КОНТУРНЫЙ ГРАФИК С ЛОГАРИФМИЧЕСКОЙ ШКАЛОЙ ЦВЕТА
+    %  (чтобы зона минимума не "сливалась" с большими значениями)
+    % =====================================================================
+    subplot(1,2,2);
+    contourf(W, T, G_e, 60, 'LineStyle', 'none'); hold on;
+    contour(W, T, G_e, levels, 'k', 'LineWidth', 0.6);
+    if ~isempty(levels_island) && numel(levels_island) >= 2
+        contour(W, T, G_e, levels_island, 'r', 'LineWidth', 1.5);
+    end
+    plot(W_min, T_min, 'kp', 'MarkerSize', 14, ...
+         'MarkerFaceColor','y', 'MarkerEdgeColor','k', 'LineWidth', 1);
+    text(W_min, T_min, sprintf('  %.1f', gv), ...
+         'FontSize', 10, 'FontWeight', 'bold');
+
+    colorbar;
+    colormap turbo;
+    % логарифмический масштаб цвета — растягивает зону минимума
+    set(gca, 'ColorScale', 'log');
+    xlabel('Скорость, rpm'); ylabel('Момент, Н\cdotм');
+    title('Логарифмическая шкала — видны детали зоны минимума');
+    grid on;
+
+    % =====================================================================
+    %  СРАВНЕНИЕ FULL-LOAD (без изменений)
+    % =====================================================================
     if isfield(calib, 'points_full') && ~isempty(calib.points_full.n_rpm)
         pf = calib.points_full;
         figure('Color','w','Position',[100 100 900 500]);
@@ -211,20 +291,14 @@ function plot_vector_case(Engine, w_load, Const, calib)
               calib.full_rms_pct));
     end
 
-    % --- Контуры + 3D ---
+    % =====================================================================
+    %  3D-ПОВЕРХНОСТЬ
+    % =====================================================================
     figure('Color','w','Position',[100 100 1400 600]);
-
-    subplot(1,2,1);
-    contourf(W, T, G_e, 20, 'LineColor','none'); hold on;
-    contour(W, T, G_e, 10, 'k');
-    colorbar;
-    xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
-    title('Изолинии g_e (вид сверху)'); grid on;
-
-    subplot(1,2,2);
     surf(W, T, G_e, 'EdgeColor','none');
     shading interp; colormap turbo; colorbar;
-    xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
-    zlabel('g_e, г/(кВт\cdotч)');
-    title('3D-поверхность'); grid on; view(45, 30);
+    caxis([g_min, g_max]);
+    xlabel('Скорость, rpm'); ylabel('Момент, Н\cdotм');
+    zlabel('g_e, г/(кВт·ч)');
+    title('3D-поверхность'); grid on; view(45, 30); rotate3d on;
 end

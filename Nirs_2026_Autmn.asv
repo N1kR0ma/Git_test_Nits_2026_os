@@ -16,7 +16,8 @@ clear way2func
 setupPlotDefaults();
 
 %% Input Data
-graphic_cr = false;
+% graphic_cr = false;
+graphic_cr = true;
 %% Standart constrant
 Const.g = 9.80665;
 Const.rho = 1.225;
@@ -138,310 +139,392 @@ end
 [Engine, info] = build_engine_map_func(Engine, Ge_e, T_e,...
         Moment_coeff, Const, struct('plot', graphic_cr, 'verbose', true));
     
-Engine.Koeff_use = Engine.T ./ max(Engine.T,[],2);
+% % Engine.Koeff_use = Engine.T ./ max(Engine.T,[],2);
+% % 
 
-% % % %  Test with Shlipce function
-% [Engine_shlipce, info] = build_engine_map_func(Engine, min(Ge_e), T_e,...
-%     Moment_coeff, Const,struct('plot', graphic_cr, 'verbose', true));
-  
-    % --- Контуры + 3D ---
-    figure('Color','w','Position',[100 100 1400 600]);
-
-    subplot(1,2,1);
-    contourf(Engine.W_e, Engine.Koeff_use', Engine.G_e', 20, 'LineColor','none'); hold on;
-    contour(Engine.W_e, Engine.Koeff_use', Engine.G_e', 'k');
-    colorbar;
-    xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
-    title('Изолинии g_e (вид сверху)'); grid on;
-
-    subplot(1,2,2);
-    surf(Engine.W_e, Engine.Koeff_use', Engine.G_e', 'EdgeColor','none');
-    shading interp; colormap turbo; colorbar;
-    xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
-    zlabel('g_e, г/(кВт\cdotч)');
-    title('3D-поверхность'); grid on; view(45, 30);
-
-%% Definition real torque matrix with efficiency coefficient
-% Vehicle.Axle_x = Vehicle.Axle_x - Vehicle.CM_x;
-
+% %   
+% %     --- Контуры + 3D ---
+% %     figure('Color','w','Position',[100 100 1400 600]);
+% % 
+% %     subplot(1,2,1);
+% %     contourf(Engine.W_e, Engine.Koeff_use', Engine.G_e', 20, 'LineColor','none'); hold on;
+% %     contour(Engine.W_e, Engine.Koeff_use', Engine.G_e', 'k');
+% %     colorbar;
+% %     xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
+% %     title('Изолинии g_e (вид сверху)'); grid on;
+% % 
+% %     subplot(1,2,2);
+% %     surf(Engine.W_e, Engine.Koeff_use', Engine.G_e', 'EdgeColor','none');
+% %     shading interp; colormap turbo; colorbar;
+% %     xlabel('Скорость, rpm'); ylabel('Момент, N\cdotm');
+% %     zlabel('g_e, г/(кВт\cdotч)');
+% %     title('3D-поверхность'); grid on; view(45, 30);
+% % 
+% % Definition real torque matrix with efficiency coefficient
+% % Vehicle.Axle_x = Vehicle.Axle_x - Vehicle.CM_x;
+% % 
 % % % Radius
-Vehicle.radius =...
-    ((Vehicle.Tire_1   *   Vehicle.Tire_2/100)      +     ...
-    ((25.4       *       Vehicle.Tire_R)    /   2))   /   1000;
-Vehicle.efficiency = Vehicle.eta_gb * Vehicle.eta_fd * Vehicle.eta_wr;
-
-
+% % Vehicle.radius =...
+% %     ((Vehicle.Tire_1   *   Vehicle.Tire_2/100)      +     ...
+% %     ((25.4       *       Vehicle.Tire_R)    /   2))   /   1000;
+% % Vehicle.efficiency = Vehicle.eta_gb * Vehicle.eta_fd * Vehicle.eta_wr;
+% % 
+% % 
 % % % Midel area
-Vehicle.Midel = Vehicle.C_m * Vehicle.H * Vehicle.B * Vehicle.C_d; 
-
+% % Vehicle.Midel = Vehicle.C_m * Vehicle.H * Vehicle.B * Vehicle.C_d; 
+% % 
 % % % Transmission
-Vehicle.Transmission = Vehicle.i_fd * Vehicle.i_wr * Vehicle.i_gb;
-
+% % Vehicle.Transmission = Vehicle.i_fd * Vehicle.i_wr * Vehicle.i_gb;
+% % 
 % % %  Wozduh sopr
-Vehicle.F_sopr_air =...
-   Air_resistance(Vehicle.C_d, Vehicle.Midel, Const.rho,...
-   Engine.W_e * (1./Vehicle.Transmission));  
-
+% % Vehicle.F_sopr_air =...
+% %    Air_resistance(Vehicle.C_d, Vehicle.Midel, Const.rho,...
+% %    Engine.W_e * (1./Vehicle.Transmission));  
+% % 
 % % % Realizable momet of engine
-Vehicle.Force_xeng =...
-    Engine.T *Engine.Coef_use / Vehicle.radius ...
-    .* reshape(Vehicle.efficiency .* Vehicle.Transmission, 1, 1, []);
-
+% % Vehicle.Force_xeng =...
+% %     Engine.T *Engine.Coef_use / Vehicle.radius ...
+% %     .* reshape(Vehicle.efficiency .* Vehicle.Transmission, 1, 1, []);
+% % 
 % % %  Suspention shtiffness from omega
-Vehicle.Susp_Cx =...
-    Suspention_shtiifness_func(Vehicle.mass_f, Vehicle.Omega);
-
+% % Vehicle.Susp_Cx =...
+% %     Suspention_shtiifness_func(Vehicle.mass_f, Vehicle.Omega);
+% % 
 % % % Inertion coefficient
-Vehicle.Delta =...
-    delta_f(Vehicle.Transmission, Vehicle.efficiency,...
-    Vehicle.I_e, Vehicle.Wheel , Vehicle.I_w,...
-    Vehicle.radius, Vehicle.mass_f);
-
+% % Vehicle.Delta =...
+% %     delta_f(Vehicle.Transmission, Vehicle.efficiency,...
+% %     Vehicle.I_e, Vehicle.Wheel , Vehicle.I_w,...
+% %     Vehicle.radius, Vehicle.mass_f);
+% % 
 % % %  R_z vehicle
-Vehicle.Rz = Rz_zhestkost(Vehicle.mass_f * cos(Road.alpha) * Const.g,...
-    Vehicle.mass_f * sin(Road.alpha) * Const.g,...
-    Vehicle.Axle_x, Vehicle.Susp_Cx, Vehicle.CM_x , Vehicle.CM_y);
-
+% % Vehicle.Rz = Rz_zhestkost(Vehicle.mass_f * cos(Road.alpha) * Const.g,...
+% %     Vehicle.mass_f * sin(Road.alpha) * Const.g,...
+% %     Vehicle.Axle_x, Vehicle.Susp_Cx, Vehicle.CM_x , Vehicle.CM_y);
+% % 
 % % % Tip-road friction force
-Vehicle.F_xmu = sum(Vehicle.Rz(Vehicle.Drive_axle))* Road.mu;
-
+% % Vehicle.F_xmu = sum(Vehicle.Rz(Vehicle.Drive_axle))* Road.mu;
+% % 
 % % %  Real rorce on torque, i_tr
-Vehicle.F_x = min(Vehicle.Force_xeng, Vehicle.F_xmu);
+% % Vehicle.F_x = min(Vehicle.Force_xeng, Vehicle.F_xmu);
 % % %  Вычитаение сопротивления воздуха по правильным осям
-Vehicle.Fx_air = Vehicle.F_x - reshape(Vehicle.F_sopr_air, ...
-                                       size(Vehicle.F_sopr_air,1), 1, ...
-                                       size(Vehicle.F_sopr_air,2));
-
-if graphic_cr
+% % Vehicle.Fx_air = Vehicle.F_x - reshape(Vehicle.F_sopr_air, ...
+% %                                        size(Vehicle.F_sopr_air,1), 1, ...
+% %                                        size(Vehicle.F_sopr_air,2));
+% % 
+% % if graphic_cr
 % % % Surf crate
-figure
-hold on
-for i = 1:size(Vehicle.Fx_air,3)
-x = Engine.W_e;              % 53×1
-y = Engine.Koeff_use(i, :);          % 1×16  (или T(:,1), если T — 16×53 по смыслу)
-[X, Y] = meshgrid(y, x);     % 53×16
-surf(X, Y, Vehicle.Fx_air(:,:,i));
-xlabel('T'); ylabel('W_e'); zlabel('Fx');
-end
-view(3); grid on; hold off;
-end
-
-DVS_1_torqe = [Engine.W_e, Engine.T(:,end)];
-% 
-% [accel, Din_f, v] = Din_f_und_accel( ...
-%         Vehicle.Transmission, ...          % u_tr
-%         Vehicle.efficiency,  ...           % h_tr
-%         Engine.Coef_use,     ...           % kch
-%         Vehicle.Delta,       ...           % delta
-%         'Геометрическое распределение', ... % Name
-%         Vehicle.mass_f,      ...           % m
-%         Const.g,             ...           % g
-%         Vehicle.radius,      ...           % r0
-%         DVS_1_torqe,         ...           % [W_e, T_e]
-%         Vehicle.C_d,         ...           % c_x
-%         Vehicle.Midel,       ...           % Area
-%         Const.rho,           ...           % ro
-%         Road.f_r,            ...           % f_speed_0
-%         Road.k_f,            ...           % k_f
-%         Road.alpha);                       % alpha
-%% Gear shifting map create
-
+% % figure
+% % hold on
+% % for i = 1:size(Vehicle.Fx_air,3)
+% % x = Engine.W_e;              % 53×1
+% % y = Engine.Koeff_use(i, :);          % 1×16  (или T(:,1), если T — 16×53 по смыслу)
+% % [X, Y] = meshgrid(y, x);     % 53×16
+% % surf(X, Y, Vehicle.Fx_air(:,:,i));
+% % xlabel('T'); ylabel('W_e'); zlabel('Fx');
+% % end
+% % view(3); grid on; hold off;
+% % end
+% % 
+% % DVS_1_torqe = [Engine.W_e, Engine.T(:,end)];
+% % 
+% % [accel, Din_f, v] = Din_f_und_accel( ...
+% %         Vehicle.Transmission, ...          % u_tr
+% %         Vehicle.efficiency,  ...           % h_tr
+% %         Engine.Coef_use,     ...           % kch
+% %         Vehicle.Delta,       ...           % delta
+% %         'Геометрическое распределение', ... % Name
+% %         Vehicle.mass_f,      ...           % m
+% %         Const.g,             ...           % g
+% %         Vehicle.radius,      ...           % r0
+% %         DVS_1_torqe,         ...           % [W_e, T_e]
+% %         Vehicle.C_d,         ...           % c_x
+% %         Vehicle.Midel,       ...           % Area
+% %         Const.rho,           ...           % ro
+% %         Road.f_r,            ...           % f_speed_0
+% %         Road.k_f,            ...           % k_f
+% %         Road.alpha);                       % alpha
+% % Gear shifting map create
+% % 
 % % Max omega
-Calc.n_shift = size(Vehicle.Transmission, 2) - 1;   % X-1 переключений
-Calc.n_koeff = size(Engine.Koeff_use, 2);           % число коэффициентов (16)
-
-% --- Верхняя граница: скорости для каждой передачи, затем отбрасываем последнюю ---
-Calc.speed_up_all   = max(Engine.W_e) * Vehicle.radius ...
-                 ./ Vehicle.Transmission * 3.6;        % длина X
-Calc.speed_up_shift = Calc.speed_up_all(1:Calc.n_shift);              % длина X-1 (без последней)
-
-% --- Нижняя граница: скорости для каждой передачи, затем отбрасываем первую ---
-Calc.speed_down_all   = min(Engine.W_e) * Vehicle.radius ...
-                   ./ Vehicle.Transmission * 3.6;      % длина X
-Calc.speed_down_shift = Calc.speed_down_all(2:end);              % длина X-1 (без первой)
-
-% --- Коэффициенты использования (1 × n_koeff) ---
-Calc.h_up   = max(Engine.Koeff_use, [], 1);   % максимум по оборотам для каждого коэффициента
-Calc.h_down = min(Engine.Koeff_use, [], 1);   % минимум по оборотам для каждого коэффициента
-
-% --- Размножаем до размерности (n_shift × n_koeff) ---
-% h: одна и та же строка h_up/h_down повторяется n_shift раз
-Map.MM_up_h   = repmat(Calc.h_up,   Calc.n_shift, 1);   % (n_shift × n_koeff)
-Map.MM_down_h = repmat(Calc.h_down, Calc.n_shift, 1);   % (n_shift × n_koeff)
-
-% speed: один и тот же столбец speed_*_shift повторяется n_koeff раз
-Map.MM_up_speed   = repmat(Calc.speed_up_shift(:),   1, Calc.n_koeff);   % (n_shift × n_koeff)
-Map.MM_down_speed = repmat(Calc.speed_down_shift(:), 1, Calc.n_koeff);   % (n_shift × n_koeff)
- 
-plot_gears_maps2(Map.MM_up_h, Map.MM_up_speed, ...
-                 Map.MM_down_h, Map.MM_down_speed);
-             
- 
-
-%% до циклов
-clc
-close all
-clear Calc_m
-clear Map
- 
-n_i = size(Vehicle.Transmission,2)-1;
-n_W = size(Engine.W_e,1);
-Calc_m.Engine_coef = zeros(n_W, size(Engine.Koeff_use,2));
-
-% Инициализация карт (чтобы не было ошибки non-existent field)
-Map.Ge_up_Speed   = nan(n_i, size(Engine.Koeff_use,2));
-Map.Ge_up_h       = nan(n_i, size(Engine.Koeff_use,2));
-Map.Ge_down_Speed = nan(n_i, size(Engine.Koeff_use,2));
-Map.Ge_down_h     = nan(n_i, size(Engine.Koeff_use,2));
-
-for i = 1:n_i
-    for j = 1:size(Engine.Koeff_use,2) 
-        Calc_m.Speed    = nan(1, n_W);
-        Calc_m.Fx_air   = nan(1, n_W);
-        Calc_m.G_e      = nan(1, n_W);
-        Calc_m.Omega_2  = nan(1, n_W);
-        Calc_m.Fx_air_2 = nan(1, n_W);
-        Calc_m.G_e2     = nan(1, n_W);
-
-        for k = 1:n_W
+% % Calc.n_shift = size(Vehicle.Transmission, 2) - 1;   % X-1 переключений
+% % Calc.n_koeff = size(Engine.Koeff_use, 2);           % число коэффициентов (16)
+% % 
+% % --- Верхняя граница: скорости для каждой передачи, затем отбрасываем последнюю ---
+% % Calc.speed_up_all   = max(Engine.W_e) * Vehicle.radius ...
+% %                  ./ Vehicle.Transmission * 3.6;        % длина X
+% % Calc.speed_up_shift = Calc.speed_up_all(1:Calc.n_shift);              % длина X-1 (без последней)
+% % 
+% % --- Нижняя граница: скорости для каждой передачи, затем отбрасываем первую ---
+% % Calc.speed_down_all   = min(Engine.W_e) * Vehicle.radius ...
+% %                    ./ Vehicle.Transmission * 3.6;      % длина X
+% % Calc.speed_down_shift = Calc.speed_down_all(2:end);              % длина X-1 (без первой)
+% % 
+% % --- Коэффициенты использования (1 × n_koeff) ---
+% % Calc.h_up   = max(Engine.Koeff_use, [], 1);   % максимум по оборотам для каждого коэффициента
+% % Calc.h_down = min(Engine.Koeff_use, [], 1);   % минимум по оборотам для каждого коэффициента
+% % 
+% % --- Размножаем до размерности (n_shift × n_koeff) ---
+% % h: одна и та же строка h_up/h_down повторяется n_shift раз
+% % Map.MM_up_h   = repmat(Calc.h_up,   Calc.n_shift, 1);   % (n_shift × n_koeff)
+% % Map.MM_down_h = repmat(Calc.h_down, Calc.n_shift, 1);   % (n_shift × n_koeff)
+% % 
+% % speed: один и тот же столбец speed_*_shift повторяется n_koeff раз
+% % Map.MM_up_speed   = repmat(Calc.speed_up_shift(:),   1, Calc.n_koeff);   % (n_shift × n_koeff)
+% % Map.MM_down_speed = repmat(Calc.speed_down_shift(:), 1, Calc.n_koeff);   % (n_shift × n_koeff)
+% %  
+% % plot_gears_maps2(Map.MM_up_h, Map.MM_up_speed, ...
+% %                  Map.MM_down_h, Map.MM_down_speed);
+% %              
+% %  
+% % 
+% % до циклов
+% % clc
+% % close all
+% % clear Calc_m
+% % clear Map
+% %  
+% % n_i = size(Vehicle.Transmission,2);
+% % n_W = size(Engine.W_e,1);
+% % Calc_m.Engine_coef = zeros(n_W, size(Engine.Koeff_use,2));
+% % 
+% % for i = 1:n_i
+% %     for j = 1:size(Engine.Koeff_use,2) 
+% %         Calc_m.Speed      = nan(1, n_W);
+% %         Calc_m.Fx_air     = nan(1, n_W);
+% %         Calc_m.G_e        = nan(1, n_W);
+% %         Calc_m.Omega_up_2 = nan(1, n_W);
+% %         Calc_m.Fx_air_2_up   = nan(1, n_W);
+% %         Calc_m.G_e2_up       = nan(1, n_W);
+% %         Calc_m.Omega_down_2  = nan(1, n_W);
+% %         Calc_m.Fx_air_2_down = nan(1, n_W);
+% %         Calc_m.G_e2_down     = nan(1, n_W);
+% % 
+% %         Map.Ge_up_found   = false;   % инициализация флага up до цикла k
+% %         Map.Ge_down_found = false;   % инициализация флага down до цикла k
+% % 
+% %         for k = 1:n_W
 % % Скорость (угловая скорость на выходе трансмиссии) для текущей передачи i
-Calc_m.Speed(k)  = Engine.W_e(k,1) / Vehicle.Transmission(i);
-
+% % Calc_m.Speed(k)  = Engine.W_e(k,1) / Vehicle.Transmission(i);
+% % 
 % % Коэффициент использования двигателя в точке (обороты k, момент j)
-Calc_m.Engine_coef(k,j) = Engine.Koeff_use(k,j);
-
+% % Calc_m.Engine_coef(k,j) = Engine.Koeff_use(k,j);
+% % 
 % % Тягловая сила (за вычетом аэродинамики) для текущей передачи i,
 % % в точке (обороты k, момент j)
-Calc_m.Fx_air(k) = Vehicle.Fx_air(k,j,i);
-
-        if Engine.W_e(k,1) == Engine.W_e(end)
-                Map.Ge_up_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
-                Map.Ge_up_h(i,j)     = Calc_m.Engine_coef(k,j);
-                continue
-        end
-        
+% % Calc_m.Fx_air(k) = Vehicle.Fx_air(k,j,i);
+% % 
 % % Удельный расход топлива для текущих оборотов k и момента j
-Calc_m.G_e(k)    = Engine.G_e(k, j);
-
-%% ================= ПЕРЕКЛЮЧЕНИЕ ВВЕРХ (i -> i+1) =================
+% % Calc_m.G_e(k)    = Engine.G_e(k, j);
+% % 
+% % if i < n_i && ~Map.Ge_up_found
+% %     skip_up = false;
+% % 
+% %     if Engine.W_e(k,1) == Engine.W_e(end)
+% %             Map.Ge_up_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
+% %             Map.Ge_up_h(i,j)     = Calc_m.Engine_coef(k,j);
+% %             skip_up = true;   % вместо continue
+% %     end
+% % 
+% %     if ~skip_up
 % % Обороты двигателя, которые установятся на следующей передаче i+1
 % % при той же скорости автомобиля (Speed неизменна в момент переключения)
-Calc_m.Omega_2(k) = Calc_m.Speed(k) * Vehicle.Transmission(i+1);
-
+% % Calc_m.Omega_up_2(k) = Calc_m.Speed(k) * Vehicle.Transmission(i+1);
+% % 
 % % Проверка: переключение не должно опустить двигатель на холостой ход
-if Calc_m.Omega_2(k) > min(Engine.W_e) && Calc_m.Omega_2(k) < max(Engine.W_e)
- 
-    % Сила на передаче i+1 при частоте Omega_2(k) — вектор по моментам
-    Calc_m.Fx_air_2_pr = interp1(Engine.W_e, ...
-        Vehicle.Fx_air(:,:,i+1), Calc_m.Omega_2(k), 'linear', NaN);
-
-    % Коэффициент использования при этой частоте
-    Calc_m.Engine_Use_pr = interp1(Engine.W_e, ...
-        Engine.Koeff_use, Calc_m.Omega_2(k), 'linear', NaN);
-
-    % Определение коэффициентов использования, обеспечивающих ту же тягу
-    Calc_m.Engine_Use = interp_find_all_linear( ...
-        Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, Calc_m.Fx_air(k));
-
-    if ~isempty(Calc_m.Engine_Use) && ~any(isnan(Calc_m.Engine_Use(:)))
-        
-        % Проверяем максимальную силу на найденных коэффициентах
-        Calc_m.Fx_new_pr = interp1(Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, ...
-            Calc_m.Engine_Use, 'linear', NaN);
-            
-        if ~isempty(Calc_m.Fx_new_pr) && any(~isnan(Calc_m.Fx_new_pr))
-            [Calc_m.Fx_new_max, Calc_m.idx_use] = max(Calc_m.Fx_new_pr);
-
-            if Calc_m.Fx_new_max >= Calc_m.Fx_air(k)
-                % Расход на частоте Omega_2(k)
-                Calc_m.Ge_2_int = interp1(Engine.W_e, Engine.G_e, ...
-                    Calc_m.Omega_2(k), 'linear', NaN);            
-                
-                % Расходы для найденных коэффициентов
-                Calc_m.Ge_2_pr = interp1(Calc_m.Engine_Use_pr, Calc_m.Ge_2_int, ...
-                    Calc_m.Engine_Use, 'linear', NaN);
-
-                [Calc_m.G_e2, Calc_m.idx_min] = min(Calc_m.Ge_2_pr);
-                Calc_m.Engine_Use_best = Calc_m.Engine_Use(Calc_m.idx_min);
-
-                % Точная сила для этого коэффициента
-                Calc_m.Fx_air_2(k) = interp1(Calc_m.Engine_Use_pr, Calc_m.Fx_air_2_pr, ...
-                    Calc_m.Engine_Use_best, 'linear', NaN);
-
-                if Calc_m.G_e2 < Calc_m.G_e(k) && Calc_m.Fx_air_2(k) >= Calc_m.Fx_air(k)
-                    disp('Переключение вверх для экономичности');
-                    Map.Ge_up_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
-                    Map.Ge_up_h(i,j)     = Calc_m.Engine_coef(k,j); % или Engine_Use_best
-                    % break; % Если раскомментировать, цикл k прервется, и блок вниз не сработает
-                end
-            end
-        end
-    end
-end
-
-%% ================= ПЕРЕКЛЮЧЕНИЕ ВНИЗ (i -> i-1) =================
-if i > 1
-    % % Обороты двигателя на предыдущей передаче i-1
-    Calc_m.Omega_dn(k) = Calc_m.Speed(k) * Vehicle.Transmission(i-1);
-
-    if Calc_m.Omega_dn(k) > min(Engine.W_e) && Calc_m.Omega_dn(k) < max(Engine.W_e)
-
-        % Сила на передаче i-1 при частоте Omega_dn(k)
-        Calc_m.Fx_air_dn_pr = interp1(Engine.W_e, ...
-            Vehicle.Fx_air(:,:,i-1), Calc_m.Omega_dn(k), 'linear', NaN);
-
-        % Коэффициент использования при этой частоте
-        Calc_m.Engine_Use_dn_pr = interp1(Engine.W_e, ...
-            Engine.Koeff_use, Calc_m.Omega_dn(k), 'linear', NaN);
-
-        % Определение коэффициентов использования для той же тяги
-        Calc_m.Engine_Use_dn = interp_find_all_linear( ...
-            Calc_m.Engine_Use_dn_pr, Calc_m.Fx_air_dn_pr, Calc_m.Fx_air(k));
-
-        if ~isempty(Calc_m.Engine_Use_dn) && ~any(isnan(Calc_m.Engine_Use_dn(:)))
-            
-            % Проверяем максимальную силу
-            Calc_m.Fx_dn_new_pr = interp1(Calc_m.Engine_Use_dn_pr, Calc_m.Fx_air_dn_pr, ...
-                Calc_m.Engine_Use_dn, 'linear', NaN);
-                
-            if ~isempty(Calc_m.Fx_dn_new_pr) && any(~isnan(Calc_m.Fx_dn_new_pr))
-                [Calc_m.Fx_dn_new_max, Calc_m.idx_use_dn] = max(Calc_m.Fx_dn_new_pr);
-
-                if Calc_m.Fx_dn_new_max >= Calc_m.Fx_air(k)
-                    % Расход на частоте Omega_dn(k)
-                    Calc_m.Ge_dn_int = interp1(Engine.W_e, Engine.G_e, ...
-                        Calc_m.Omega_dn(k), 'linear', NaN);            
-                    
-                    % Расходы для найденных коэффициентов
-                    Calc_m.Ge_dn_pr = interp1(Calc_m.Engine_Use_dn_pr, Calc_m.Ge_dn_int, ...
-                        Calc_m.Engine_Use_dn, 'linear', NaN);
-
-                    [Calc_m.G_e_dn2, Calc_m.idx_min_dn] = min(Calc_m.Ge_dn_pr);
-                    Calc_m.Engine_Use_dn_best = Calc_m.Engine_Use_dn(Calc_m.idx_min_dn);
-
-                    % Точная сила для этого коэффициента
-                    Calc_m.Fx_air_dn = interp1(Calc_m.Engine_Use_dn_pr, Calc_m.Fx_air_dn_pr, ...
-                        Calc_m.Engine_Use_dn_best, 'linear', NaN);
-
-                    if Calc_m.G_e_dn2 < Calc_m.G_e(k) && Calc_m.Fx_air_dn >= Calc_m.Fx_air(k)
-                        disp('Переключение вниз для экономичности');
-                        Map.Ge_down_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
-                        Map.Ge_down_h(i,j)     = Calc_m.Engine_coef(k,j);
-                    end
-                end
-            end
-        end
-    end
-end
-%% ================================================================
-
-        end
-    end
-end
- 
-
-plot_gears_maps2(Map.Ge_up_h,Map.Ge_up_Speed, ...
-                 Map.Ge_up_h , Map.Ge_up_Speed );
+% % (Omega_up_2 ниже минимальных оборотов) и не должно превысить максимальные
+% % обороты. Если условие не выполнено — пропускаем итерацию.
+% % if Calc_m.Omega_up_2(k) <= min(Engine.W_e) || ...
+% %    Calc_m.Omega_up_2(k) >= max(Engine.W_e)
+% %       skip_up = true;   % вместо continue
+% % end
+% %     end
+% % 
+% %     if ~skip_up
+% % Сила на передаче i+1 при частоте Omega_up_2(k) — вектор по моментам
+% % Calc_m.Fx_air_2_pr_up = interp1(Engine.W_e, ...
+% %     Vehicle.Fx_air(:,:,i+1), Calc_m.Omega_up_2(k), 'linear', NaN);
+% % 
+% % Коэффициент использования при этой частоте (скаляр, момент j)
+% % Calc_m.Engine_Use_pr_up = interp1(Engine.W_e, ...
+% %     Engine.Koeff_use, Calc_m.Omega_up_2(k), 'linear', NaN);
+% % 
+% % 
+% % %  Определение возможных тягловых сил для данной частоты вращения
+% % %  на следующей передаче i+1 (вектор по моментам)
+% % Calc_m.Fx_air_2_pr_up = interp1(Engine.W_e, ...
+% %     Vehicle.Fx_air(:,:,i+1), Calc_m.Omega_up_2(k), 'linear', NaN);
+% % 
+% % %  Определение коэффициентов использования, обеспечивающих
+% % %  движение с той же тягловой силой Fx_air(k)
+% % Calc_m.Engine_Use_up = interp_find_all_linear( ...
+% %     Calc_m.Engine_Use_pr_up, Calc_m.Fx_air_2_pr_up, Calc_m.Fx_air(k));
+% % 
+% % if isempty(Calc_m.Engine_Use_up) || any(isnan(Calc_m.Engine_Use_up(:)))
+% %                 skip_up = true;   % вместо continue
+% % end
+% %     end
+% % 
+% %     if ~skip_up
+% % 1. Находим коэффициенты использования на следующей передаче (i+1),
+% % при которых сила тяги теоретически равна исходной Calc_m.Fx_air(k).
+% % (Функция вернет вектор возможных корней, если их несколько).
+% % Calc_m.Engine_Use_up = interp_find_all_linear( ...
+% %     Calc_m.Engine_Use_pr_up, Calc_m.Fx_air_2_pr_up, Calc_m.Fx_air(k));
+% % 
+% % if isempty(Calc_m.Engine_Use_up) || any(isnan(Calc_m.Engine_Use_up(:)))
+% %     skip_up = true;   % вместо continue
+% % end
+% %     end
+% % 
+% %     if ~skip_up
+% % 2. Если корней несколько, нам нужен тот, который дает максимальную силу
+% % (или тот, который вы выберете по логике). Давайте проверим все найденные точки:
+% % Calc_m.Fx_new_pr_up = interp1(Calc_m.Engine_Use_pr_up, Calc_m.Fx_air_2_pr_up, ...
+% %     Calc_m.Engine_Use_up, 'linear', NaN);
+% % 
+% % if isempty(Calc_m.Fx_new_pr_up) || all(isnan(Calc_m.Fx_new_pr_up))
+% %     skip_up = true;   % вместо continue
+% % end
+% %     end
+% % 
+% %     if ~skip_up
+% % Вычисляем максимальную силу, которую мы можем получить
+% % [Calc_m.Fx_new_max_up, Calc_m.idx_use_up] = max(Calc_m.Fx_new_pr_up);
+% % 
+% % 3. Сравнение максимальной новой силы с исходной Calc_m.Fx_air(k)
+% %     Выбираем соответствующий коэффициент использования
+% %     Calc_m.Engine_Use_best_up = Calc_m.Engine_Use_up(Calc_m.idx_use_up);
+% % 
+% % %  Получения графика зависимости удельного расхода от коэф исп
+% %             Calc_m.Ge_2_int_up = interp1(Engine.W_e, Engine.G_e, ...
+% %                 Calc_m.Omega_up_2(k), 'linear', NaN);            
+% %             
+% % Вычисляем расходы для найденных коэффициентов
+% % Calc_m.Ge_2_pr_up = interp1(Calc_m.Engine_Use_pr_up, Calc_m.Ge_2_int_up, ...
+% %     Calc_m.Engine_Use_up, 'linear', NaN);
+% % 
+% % Находим минимальный расход
+% % [Calc_m.G_e2_up, Calc_m.idx_min_up] = min(Calc_m.Ge_2_pr_up);
+% % 
+% % Берем коэффициент использования, который дал этот минимальный расход
+% % Calc_m.Engine_Use_best_up = Calc_m.Engine_Use_up(Calc_m.idx_min_up);
+% % 
+% % Вычисляем ТОЧНУЮ силу для этого коэффициента (перепроверка)
+% % Calc_m.Fx_air_2_up(k) = interp1(Calc_m.Engine_Use_pr_up, Calc_m.Fx_air_2_pr_up, Calc_m.Engine_Use_best_up, 'linear', NaN);
+% % 
+% %             if  Calc_m.G_e2_up < Calc_m.G_e(k)
+% %                 if Calc_m.Fx_air_2_up(k) >= Calc_m.Fx_air(k)
+% %                 disp('Переключение для экономичности');
+% %                 Map.Ge_up_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
+% %                 Map.Ge_up_h(i,j)     = Calc_m.Engine_coef(k,j);
+% %                 Map.Ge_up_found = true;   % вместо break
+% %                 end
+% %             end  
+% %     end
+% % end
+% %         
+% % if i > 1 && ~Map.Ge_down_found
+% %     skip_down = false;
+% % 
+% %     if Engine.W_e(k,1) == Engine.W_e(1)
+% %             Map.Ge_down_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
+% %             Map.Ge_down_h(i,j)     = Calc_m.Engine_coef(k,j);
+% %             skip_down = true;   % вместо continue
+% %     end
+% % 
+% %     if ~skip_down
+% % Обороты двигателя, которые установятся на следующей передаче i+1
+% % при той же скорости автомобиля (Speed неизменна в момент переключения)
+% % Calc_m.Omega_down_2(k) = Calc_m.Speed(k) * Vehicle.Transmission(i-1);    
+% % 
+% % Проверка: переключение не должно опустить двигатель на холостой ход
+% % (Omega_down_2 ниже минимальных оборотов) и не должно превысить максимальные
+% % обороты. Если условие не выполнено — пропускаем итерацию.
+% % if Calc_m.Omega_down_2(k) <= min(Engine.W_e) || ...
+% %    Calc_m.Omega_down_2(k) >= max(Engine.W_e)
+% %       skip_down = true;   % вместо continue
+% % end
+% %     end
+% % 
+% %     if ~skip_down
+% % Сила на передаче i+1 при частоте Omega_down_2(k) — вектор по моментам
+% % Calc_m.Fx_air_2_pr_down = interp1(Engine.W_e, ...
+% %     Vehicle.Fx_air(:,:,i-1), Calc_m.Omega_down_2(k), 'linear', NaN);
+% % 
+% % Коэффициент использования при этой частоте (скаляр, момент j)
+% % Calc_m.Engine_Use_pr_down = interp1(Engine.W_e, ...
+% %     Engine.Koeff_use, Calc_m.Omega_down_2(k), 'linear', NaN);
+% %  
+% % %  Определение коэффициентов использования, обеспечивающих
+% % %  движение с той же тягловой силой Fx_air(k)
+% % Calc_m.Engine_Use_down = interp_find_all_linear( ...
+% %     Calc_m.Engine_Use_pr_down, Calc_m.Fx_air_2_pr_down, Calc_m.Fx_air(k));
+% % 
+% % if isempty(Calc_m.Engine_Use_down) || any(isnan(Calc_m.Engine_Use_down(:)))
+% %                 skip_down = true;   % вместо continue
+% % end
+% %     end
+% % 
+% %     if ~skip_down
+% % if isempty(Calc_m.Engine_Use_down) || any(isnan(Calc_m.Engine_Use_down(:)))
+% %     skip_down = true;   % вместо continue
+% % end
+% %     end
+% % 
+% %     if ~skip_down
+% % 2. Если корней несколько, нам нужен тот, который дает максимальную силу
+% % (или тот, который вы выберете по логике). Давайте проверим все найденные точки:
+% % Calc_m.Fx_new_pr_down = interp1(Calc_m.Engine_Use_pr_down, Calc_m.Fx_air_2_pr_down, ...
+% %     Calc_m.Engine_Use_down, 'linear', NaN);
+% % 
+% % if isempty(Calc_m.Fx_new_pr_down) || all(isnan(Calc_m.Fx_new_pr_down))
+% %     skip_down = true;   % вместо continue
+% % end
+% %     end
+% % 
+% %     if ~skip_down
+% % Вычисляем максимальную силу, которую мы можем получить
+% % [Calc_m.Fx_new_max_down, Calc_m.idx_use_down] = max(Calc_m.Fx_new_pr_down);
+% % 
+% % 3. Сравнение максимальной новой силы с исходной Calc_m.Fx_air(k)
+% %     Выбираем соответствующий коэффициент использования
+% %     Calc_m.Engine_Use_best_down = Calc_m.Engine_Use_down(Calc_m.idx_use_down);
+% % 
+% % %  Получения графика зависимости удельного расхода от коэф исп
+% %             Calc_m.Ge_2_int_down = interp1(Engine.W_e, Engine.G_e, ...
+% %                 Calc_m.Omega_down_2(k), 'linear', NaN);            
+% %             
+% % Вычисляем расходы для найденных коэффициентов
+% % Calc_m.Ge_2_pr_down = interp1(Calc_m.Engine_Use_pr_down, Calc_m.Ge_2_int_down, ...
+% %     Calc_m.Engine_Use_down, 'linear', NaN);
+% % 
+% % Находим минимальный расход
+% % [Calc_m.G_e2_down, Calc_m.idx_min_down] = min(Calc_m.Ge_2_pr_down);
+% % 
+% % Берем коэффициент использования, который дал этот минимальный расход
+% % Calc_m.Engine_Use_best_down = Calc_m.Engine_Use_down(Calc_m.idx_min_down);
+% % 
+% % Вычисляем ТОЧНУЮ силу для этого коэффициента (перепроверка)
+% % Calc_m.Fx_air_2_down(k) = interp1(Calc_m.Engine_Use_pr_down, Calc_m.Fx_air_2_pr_down, Calc_m.Engine_Use_best_down, 'linear', NaN);
+% % 
+% %             if  Calc_m.G_e2_down < Calc_m.G_e(k)
+% %                 if Calc_m.Fx_air_2_down(k) >= Calc_m.Fx_air(k)
+% %                 disp('Переключение для экономичности');
+% %                 Map.Ge_down_Speed(i,j) = Calc_m.Speed(k) * 3.6 * Vehicle.radius;
+% %                 Map.Ge_down_h(i,j)     = Calc_m.Engine_coef(k,j);
+% %                 Map.Ge_down_found = true;   % вместо break
+% %                 end
+% %             end  
+% %     end
+% % end
+% % 
+% %             
+% %         end
+% %     end
+% % end
+% % 
+% % plot_gears_maps2(Map.Ge_up_h,Map.Ge_up_Speed, ...
+% %                  Map.Ge_down_h , Map.Ge_down_Speed );
 
 %% Definition reaL Road-Vehicle parametr
 % % % % Speed, Accekeration

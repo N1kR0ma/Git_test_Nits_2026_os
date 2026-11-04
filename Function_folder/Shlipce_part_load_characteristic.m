@@ -27,7 +27,8 @@ function ...
     % ---------- Minimum specific fuel consumption ----------
     ge_min = min(ge_basik);
 
-    % ---------- Load characteristic ----------
-    Ge_real =     k_n * k_ch * ge_min;
+k_n  = k_n(:);        % N×1 — по скорости (столбец)
+k_ch = k_ch(:).';     % 1×K — по моменту (строка)
+Ge_real = k_n * k_ch * ge_min;   % N×K:  Ge_real(i,j) = g_e(w_i, Me_j)
    
 end
